@@ -8,7 +8,7 @@ Uma chamada só, sem código de sala: quem abre o link digita o nome e entra.
 
 ## Requisitos
 
-- **Node.js 20 ou superior** (só para quem hospeda)
+- **Node.js 22 ou superior** (só para quem hospeda)
 - **cloudflared** (só para quem hospeda, e só se for expor pra fora da máquina)
 - Um navegador baseado em Chromium — Chrome, Edge, Brave, Vivaldi — para quem
   vai compartilhar tela **com som**. Firefox entra na chamada normalmente, mas
@@ -90,6 +90,11 @@ para quem está no mesmo computador.
 
 ## Na chamada
 
+A tela mostra duas listas, de propósito: quem está compartilhando ganha uma
+tela grande no palco; **todo mundo** aparece como pastilha na fila de baixo,
+compartilhando ou não. É na pastilha que fica o áudio de quem só está falando —
+e é por ela que se chega no volume de cada um.
+
 - **Compartilhar tela** — abre o diálogo do navegador para escolher a tela, a
   janela ou a aba. É nele que se decide o **com som ou sem** (detalhes por
   sistema logo abaixo).
@@ -110,8 +115,9 @@ para quem está no mesmo computador.
 
 - **Sair** — fecha suas conexões. Fechar a aba faz o mesmo.
 
-O ponto ao lado do nome fica verde quando o microfone da pessoa está ligado, e
-vermelho quando a conexão com ela caiu.
+O ícone de microfone na pastilha fica verde quando a pessoa está com o mic
+ligado; a borda fica vermelha quando a conexão com ela caiu, e azul enquanto
+ela transmite.
 
 ## Áudio da tela, por sistema
 
@@ -154,16 +160,83 @@ próprio ambiente. Se ela não abrir, falta o pacote
 - **Toque longo no celular** abre o menu de volume em Android; no iOS não há
   equivalente ao botão direito.
 
+## Desenvolver
+
+```bash
+npm start         # servidor local em http://localhost:3000
+```
+
+```bash
+npm run check     # sintaxe de todos os módulos
+```
+
+Não há etapa de build: os arquivos de `public/` são servidos como estão. Editou,
+recarregou, viu.
+
+Para uma chamada de duas pessoas na mesma máquina, abra o endereço em duas abas
+(ou numa janela anônima). Vale lembrar que compartilhar tela exige contexto
+seguro — `localhost` conta, o IP da LAN não.
+
+Como validar uma mudança fica a critério de quem mexe; o que precisa ser
+verificado está em [AGENTS.md](AGENTS.md).
+
+### Ícones
+
+São do [Lucide](https://lucide.dev) (ISC), convertidos para dentro do projeto:
+
+```bash
+npm run gerar-icones   # só quando mudar a lista em tools/gerar-icones.mjs
+```
+
+O pacote é dependência de desenvolvimento e não vai pro navegador — a página
+não busca nada de CDN nenhum, porque o túnel pode ser a única coisa que a rede
+de quem assiste alcança. Emoji não entra na interface: o desenho muda a cada
+sistema, a cor é fixa e não segue o estado do elemento.
+
 ## Estrutura
 
 ```
-server/index.js     servidor: arquivos estáticos + relay de sinalização
-public/js/rtc.js    malha WebRTC (perfect negotiation), separa voz e som da tela
-public/js/app.js    interface: palco, foco, menu de volume
-tools/hospedar.mjs  servidor + túnel, encerrados juntos
+server/index.js       servidor: arquivos estáticos + relay de sinalização
+public/js/rtc.js      malha WebRTC (perfect negotiation), separa voz e som da tela
+public/js/app.js      interface: palco, fila de pessoas, foco, menu de volume
+public/js/icones.js   gerado — ícones do Lucide embutidos
+tools/hospedar.mjs    servidor + túnel, encerrados juntos
+tools/gerar-icones.mjs  regera public/js/icones.js
 ```
 
 O servidor nunca vê mídia. Ele repassa oferta, resposta e candidatos ICE, e
 guarda em memória quem está na chamada — nada mais. Para saber qual áudio é voz
 e qual é som da tela, quem transmite anuncia os identificadores das próprias
 streams; quem recebe usa isso para separar os dois controles de volume.
+
+## Contribuir
+
+O guia de estilo e as armadilhas já pagas estão em [AGENTS.md](AGENTS.md); como
+mandar uma mudança, em [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## 🤖 Uso de IA
+
+Transparência importa aqui, então: este projeto foi construído **com auxílio de
+inteligência artificial** — o [Claude Code](https://claude.com/claude-code) da
+Anthropic — usada como assistente ao longo do desenvolvimento e da manutenção.
+
+Na prática, a IA entra no trabalho repetitivo e de baixo nível: escrever o
+código de um caminho já decidido, converter ícones, redigir e atualizar
+documentação, montar scripts de validação, procurar o ponto exato de um defeito.
+As decisões de escopo, arquitetura e desenho são humanas, e **toda mudança passa
+por revisão de gente antes de entrar** — inclusive as que a IA escreveu por
+inteiro.
+
+As regras que o assistente segue neste repositório estão versionadas em
+[AGENTS.md](AGENTS.md) e [CLAUDE.md](CLAUDE.md): são as mesmas que valem para
+qualquer pessoa que mexa no código.
+
+> **AI Usage Disclosure** — Transparency and integrity are important to this
+> project. Artificial Intelligence (AI) tools were used as part of the
+> development and maintenance workflow, serving as an assistant for repetitive,
+> time-consuming and low-level tasks. Scope, architecture and design decisions
+> are human, and every change is reviewed by a person before it lands.
+
+## Licença
+
+[MIT](LICENSE).

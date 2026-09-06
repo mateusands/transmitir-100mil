@@ -54,7 +54,11 @@ app.use(express.static(path.join(RAIZ, 'public'), {
   extensions: ['html'],
   setHeaders: res => res.setHeader('Cache-Control', 'no-cache'),
 }));
-app.get('*', (req, res, next) => {
+/* Fallback da página. Um middleware sem caminho pega tudo que sobrou — o
+   curinga '*' como rota deixou de existir no Express 5 (path-to-regexp v8) e
+   hoje lança na subida do servidor. */
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
   if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) return next();
   res.sendFile(path.join(RAIZ, 'public', 'index.html'));
 });

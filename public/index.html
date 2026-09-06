@@ -11,38 +11,83 @@
 
 <main id="entrada" class="entrada">
   <form id="form-entrar" class="cartao">
-    <h1>Transmissor</h1>
-    <p class="sub">Uma chamada, uma tela compartilhada. Nada é gravado.</p>
+    <div class="marca marca-grande">
+      <span class="marca-ponto"></span>
+      <h1>Transmissor</h1>
+    </div>
+    <p class="sub">Compartilhe sua tela, com ou sem som. Nada é gravado.</p>
 
     <label for="nome">Seu nome</label>
     <input id="nome" name="nome" maxlength="24" autocomplete="nickname" placeholder="como os outros vão te ver">
 
-    <button type="submit" id="entrar">Entrar na chamada</button>
-    <p id="aviso-entrada" class="aviso" hidden></p>
+    <button type="submit" id="entrar" class="botao botao-primario botao-largo">
+      <span class="rotulo-botao">Entrar na chamada</span>
+    </button>
+    <p id="aviso-entrada" class="aviso" role="alert" hidden></p>
   </form>
 </main>
 
 <main id="sala-view" class="sala" hidden>
   <header class="topo">
-    <strong class="titulo">Transmissor</strong>
+    <div class="marca">
+      <span class="marca-ponto"></span>
+      <strong>Transmissor</strong>
+    </div>
     <div class="acoes-topo">
-      <span class="dica">clique para ampliar · botão direito para o volume</span>
-      <span id="contagem" class="contagem"></span>
-      <button id="copiar" class="fantasma">copiar link</button>
+      <span id="contagem" class="contagem" title="pessoas na chamada">
+        <span data-icone="users"></span><span id="contagem-n">1</span>
+      </span>
+      <button id="copiar" type="button" class="botao botao-secundario">
+        <span data-icone="copy"></span><span class="rotulo-botao">Copiar link</span>
+      </button>
     </div>
   </header>
 
-  <section id="palco" class="palco"></section>
+  <div class="area">
+    <section id="palco" class="palco" aria-label="telas compartilhadas"></section>
+
+    <div id="estado-vazio" class="estado" hidden>
+      <span class="estado-icone" data-icone="monitor-off"></span>
+      <h2>Ninguém está compartilhando</h2>
+      <p>Mostre o que está na sua tela — e escolha no diálogo do navegador se o som vai junto.</p>
+      <button id="vazio-compartilhar" type="button" class="botao botao-primario">
+        <span data-icone="screen-share"></span><span class="rotulo-botao">Compartilhar tela</span>
+      </button>
+    </div>
+
+    <div id="estado-conectando" class="estado" hidden>
+      <span class="estado-icone girando" data-icone="loader-circle"></span>
+      <h2>Conectando…</h2>
+      <p>Entrando na chamada.</p>
+    </div>
+
+    <div id="estado-erro" class="estado" hidden>
+      <span class="estado-icone ruim" data-icone="circle-alert"></span>
+      <h2>Conexão perdida</h2>
+      <p>Sem contato com o servidor. Tentando voltar sozinho — deixe a aba aberta.</p>
+    </div>
+  </div>
+
+  <section id="pessoas" class="pessoas" aria-label="pessoas na chamada"></section>
 
   <footer class="barra">
-    <button id="btn-tela" class="acao">Compartilhar tela</button>
-    <button id="btn-mic" class="acao">Ligar microfone</button>
-    <button id="btn-sair" class="acao perigo">Sair</button>
+    <button id="btn-tela" type="button" class="botao botao-secundario">
+      <span data-icone="screen-share"></span><span class="rotulo-botao">Compartilhar tela</span>
+    </button>
+    <button id="btn-mic" type="button" class="botao botao-secundario">
+      <span data-icone="mic-off"></span><span class="rotulo-botao">Ligar microfone</span>
+    </button>
+    <span class="divisor" aria-hidden="true"></span>
+    <button id="btn-sair" type="button" class="botao botao-perigo" title="Sair da chamada" aria-label="Sair da chamada">
+      <span data-icone="log-out"></span><span class="rotulo-botao">Sair</span>
+    </button>
   </footer>
 
-  <div id="menu" class="menu" hidden></div>
-  <button id="ativar-som" class="ativar-som" hidden>🔇 Clique para ativar o som</button>
-  <p id="aviso-sala" class="aviso flutuante" hidden></p>
+  <div id="menu" class="menu" role="menu" hidden></div>
+  <button id="ativar-som" type="button" class="botao botao-primario ativar-som" hidden>
+    <span data-icone="volume-2"></span><span class="rotulo-botao">Clique para ativar o som</span>
+  </button>
+  <p id="aviso-sala" class="aviso flutuante" role="alert" hidden></p>
 </main>
 
 <script src="/socket.io/socket.io.js"></script>

@@ -1,3 +1,14 @@
 node_modules/
 npm-debug.log*
 .env
+
+# validação é de cada um: fica na máquina, não no repositório
+tests/
+playwright.config.mjs
+tools/telas.mjs
+test-results/
+playwright-report/
+
+# configuração de máquina
+.claude/
+.mcp.json

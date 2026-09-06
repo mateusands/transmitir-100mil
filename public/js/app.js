@@ -1,24 +1,34 @@
-/* Interface: a tela de entrada, o palco e os três botões da barra.
-   Toda a lógica de conexão mora em rtc.js — aqui só se desenha o resultado. */
+/* Interface: a tela de entrada, o palco, a fila de pessoas e a barra.
+   Toda a lógica de conexão mora em rtc.js — aqui só se desenha o resultado.
+
+   Duas listas, de propósito: quem está compartilhando ganha uma tela no palco;
+   todo mundo, compartilhando ou não, vira uma pastilha na fila de baixo. Uma
+   grade de retângulos vazios não diz nada — e é nas pastilhas que mora o áudio
+   de quem só está falando. */
 
 import * as rtc from './rtc.js';
+import { icone } from './icones.js';
 
 const $ = id => document.getElementById(id);
 
 const telaEntrada = $('entrada');
 const telaSala = $('sala-view');
 const palco = $('palco');
+const fila = $('pessoas');
 const menu = $('menu');
 
 let config = { ice_servers: [], limite_sala: 8 };
 let socket = null;
+let entrou = false;
+let conexaoCaiu = false;
+let nomeAtual = '';
 
 /* Uma sala só: quem abre o link cai na mesma chamada. Não há o que escolher,
    então a tela de entrada pergunta apenas o nome. */
 const SALA = 'call';
 
-/* sid -> { tile, video, audioVoz, audioTela, ... }, pra atualizar sem recriar */
-const tiles = new Map();
+const tiles = new Map();    // sid -> tela no palco (só de quem compartilha)
+const pessoas = new Map();  // sid -> pastilha na fila (de todo mundo, com o áudio)
 
 /**
  * Volume por pessoa, só pra quem está olhando. Ninguém mais é afetado: mexer
@@ -36,34 +46,44 @@ function somDe(sid) {
 /** sid em foco (a tela grande), ou null pro mosaico normal */
 let focado = null;
 
+pintarIcones(document);
+
 /* ================= entrada ================= */
 
 $('nome').value = localStorage.getItem('transmissor:nome') || '';
 
 $('form-entrar').addEventListener('submit', async e => {
   e.preventDefault();
-  const nome = $('nome').value.trim();
+  nomeAtual = $('nome').value.trim();
 
   if (!window.isSecureContext) {
     return avisar('entrada', 'Compartilhar tela só funciona em https (ou localhost). Abra pelo endereço do túnel.');
   }
 
-  localStorage.setItem('transmissor:nome', nome);
+  localStorage.setItem('transmissor:nome', nomeAtual);
   $('entrar').disabled = true;
 
   try {
     config = await fetch('/api/config').then(r => r.json());
+    telaEntrada.hidden = true;
+    telaSala.hidden = false;
+    renderizar();
+
     socket = io();
     rtc.iniciar(socket, config, renderizar);
     socket.on('erro', ({ erro }) => { avisar('sala', erro); voltarParaEntrada(); });
-    socket.on('sala', () => {
-      telaEntrada.hidden = true;
-      telaSala.hidden = false;
-      renderizar();
-    });
-    rtc.entrar(SALA, nome);
+    socket.on('sala', () => { entrou = true; conexaoCaiu = false; renderizar(); });
+
+    /* O socket.io reconecta sozinho, mas o servidor já tirou a gente da sala
+       nesse meio tempo — sem entrar de novo a chamada ficaria de pé só na
+       aparência, com a fila cheia e ninguém do outro lado. */
+    socket.on('disconnect', () => { conexaoCaiu = true; renderizar(); });
+    socket.on('connect', () => { if (entrou) rtc.entrar(SALA, nomeAtual); });
+
+    rtc.entrar(SALA, nomeAtual);
   } catch (e) {
     console.error(e);
+    voltarParaEntrada();
     avisar('entrada', 'Não consegui falar com o servidor.');
   } finally {
     $('entrar').disabled = false;
@@ -72,14 +92,17 @@ $('form-entrar').addEventListener('submit', async e => {
 
 /* ================= barra ================= */
 
-$('btn-tela').addEventListener('click', async () => {
+async function compartilhar() {
   try { await rtc.alternarTela(); }
   catch (e) {
     // cancelar o diálogo do navegador é rotina, não erro
     if (e?.name !== 'NotAllowedError') avisar('sala', 'Não consegui capturar a tela: ' + e.message);
   }
   renderizar();
-});
+}
+
+$('btn-tela').addEventListener('click', compartilhar);
+$('vazio-compartilhar').addEventListener('click', compartilhar);
 
 $('btn-mic').addEventListener('click', async () => {
   try { await rtc.alternarMic(); }
@@ -95,10 +118,12 @@ $('btn-sair').addEventListener('click', () => { rtc.sair(); voltarParaEntrada();
 
 $('copiar').addEventListener('click', async () => {
   const link = location.origin;
+  const rotulo = $('copiar').querySelector('.rotulo-botao');
   try {
     await navigator.clipboard.writeText(link);
-    $('copiar').textContent = 'copiado!';
-    setTimeout(() => { $('copiar').textContent = 'copiar link'; }, 1500);
+    trocarIcone($('copiar'), 'check');
+    rotulo.textContent = 'Copiado';
+    setTimeout(() => { trocarIcone($('copiar'), 'copy'); rotulo.textContent = 'Copiar link'; }, 1600);
   } catch {
     prompt('Copie o link da chamada:', link);
   }
@@ -106,9 +131,9 @@ $('copiar').addEventListener('click', async () => {
 
 $('ativar-som').addEventListener('click', () => {
   $('ativar-som').hidden = true;
-  for (const t of tiles.values()) {
-    t.audioVoz.play().catch(() => {});
-    t.audioTela.play().catch(() => {});
+  for (const p of pessoas.values()) {
+    p.audioVoz.play().catch(() => {});
+    p.audioTela.play().catch(() => {});
   }
 });
 
@@ -122,6 +147,7 @@ window.addEventListener('beforeunload', () => { try { rtc.sair(); } catch {} });
  * clicar de novo volta. Duplo clique vai pra tela cheia de verdade.
  */
 function focar(sid) {
+  if (!tiles.has(sid)) return;
   focado = focado === sid ? null : sid;
   renderizar();
 }
@@ -146,13 +172,8 @@ let menuAberto = null;
 function abrirMenu(sid, x, y) {
   const p = participante(sid);
   if (!p) return;
-  menuAberto = sid;
-  menu.replaceChildren();
 
-  const cabecalho = document.createElement('div');
-  cabecalho.className = 'menu-nome';
-  cabecalho.textContent = p.nome;
-  menu.append(cabecalho);
+  const itens = [];
 
   if (!p.local) {
     const s = somDe(sid);
@@ -160,32 +181,56 @@ function abrirMenu(sid, x, y) {
     /* Só o rótulo muda no clique. Reconstruir o menu inteiro aqui o fecharia:
        o botão sairia do DOM antes de o clique subir até o document, e o
        fechamento "clicou fora" não reconheceria mais o alvo como sendo daqui. */
-    const btnMudo = itemBotao(s.mudo ? 'Reativar som' : 'Silenciar pra mim', () => {
+    const btnMudo = itemBotao(s.mudo ? 'volume-2' : 'volume-x', rotuloMudo(s), () => {
       s.mudo = !s.mudo;
       aplicarSom(sid);
-      btnMudo.textContent = s.mudo ? 'Reativar som' : 'Silenciar pra mim';
+      trocarIcone(btnMudo, s.mudo ? 'volume-2' : 'volume-x');
+      btnMudo.querySelector('span:last-child').textContent = rotuloMudo(s);
       renderizar();
     });
-    menu.append(btnMudo);
+    itens.push(btnMudo);
 
-    menu.append(itemSlider('Voz', s.voz, v => { s.voz = v; aplicarSom(sid); }, !rtc.temSom(rtc.streamDaVoz(p.peer))));
-    menu.append(itemSlider('Som da tela', s.tela, v => { s.tela = v; aplicarSom(sid); }, !rtc.temSom(rtc.streamDaTela(p.peer))));
+    itens.push(itemSlider('Voz', s.voz, v => { s.voz = v; aplicarSom(sid); }, !rtc.temSom(rtc.streamDaVoz(p.peer))));
+    itens.push(itemSlider('Som da tela', s.tela, v => { s.tela = v; aplicarSom(sid); }, !rtc.temSom(rtc.streamDaTela(p.peer))));
 
     const nota = document.createElement('div');
     nota.className = 'menu-nota';
     nota.textContent = 'só pra você — a pessoa não é avisada';
-    menu.append(nota);
+    itens.push(nota);
   }
 
-  menu.append(document.createElement('hr'));
-  menu.append(itemBotao(focado === sid ? 'Tirar do foco' : 'Ampliar', () => { focar(sid); fecharMenu(); }));
-  menu.append(itemBotao('Tela cheia', () => { telaCheia(sid); fecharMenu(); }));
+  if (tiles.has(sid)) {
+    if (itens.length) itens.push(document.createElement('hr'));
+    itens.push(itemBotao(focado === sid ? 'minimize' : 'maximize',
+      focado === sid ? 'Tirar do foco' : 'Ampliar', () => { focar(sid); fecharMenu(); }));
+    itens.push(itemBotao('expand', 'Tela cheia', () => { telaCheia(sid); fecharMenu(); }));
+  }
 
+  // menu vazio é pior que menu nenhum: some sem explicar por quê
+  if (!itens.length) return;
+
+  menuAberto = sid;
+  menu.replaceChildren(cabecalhoMenu(p), ...itens);
   menu.hidden = false;
+
   // posiciona depois de medir, pra não vazar pela borda da janela
   const r = menu.getBoundingClientRect();
-  menu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
-  menu.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+}
+
+function rotuloMudo(s) {
+  return s.mudo ? 'Reativar som' : 'Silenciar pra mim';
+}
+
+function cabecalhoMenu(p) {
+  const div = document.createElement('div');
+  div.className = 'menu-nome';
+  div.append(avatarDe(p.nome));
+  const nome = document.createElement('span');
+  nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
+  div.append(nome);
+  return div;
 }
 
 function fecharMenu() {
@@ -193,11 +238,13 @@ function fecharMenu() {
   menu.hidden = true;
 }
 
-function itemBotao(texto, aoClicar) {
+function itemBotao(nomeIcone, texto, aoClicar) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'menu-item';
-  b.textContent = texto;
+  b.setAttribute('role', 'menuitem');
+  b.append(icone(nomeIcone), document.createElement('span'));
+  b.querySelector('span').textContent = texto;
   b.addEventListener('click', aoClicar);
   return b;
 }
@@ -208,7 +255,7 @@ function itemSlider(rotulo, valor, aoMudar, desativado) {
 
   const topo = document.createElement('label');
   const nome = document.createElement('span');
-  nome.textContent = desativado ? `${rotulo} (sem áudio)` : rotulo;
+  nome.textContent = desativado ? `${rotulo} — sem áudio` : rotulo;
   const pct = document.createElement('span');
   pct.className = 'pct';
   pct.textContent = Math.round(valor * 100) + '%';
@@ -220,6 +267,7 @@ function itemSlider(rotulo, valor, aoMudar, desativado) {
   range.max = 100;
   range.value = Math.round(valor * 100);
   range.disabled = desativado;
+  range.setAttribute('aria-label', rotulo);
   range.addEventListener('input', () => {
     pct.textContent = range.value + '%';
     aoMudar(Number(range.value) / 100);
@@ -254,104 +302,194 @@ function participante(sid) {
 
 function renderizar() {
   const lista = participantes();
-  const vistos = new Set();
-
-  // alguém pode ter saído estando em foco
-  if (focado && !lista.some(p => p.sid === focado)) focado = null;
 
   for (const p of lista) {
-    vistos.add(p.sid);
-
-    let t = tiles.get(p.sid);
-    if (!t) {
-      t = criarTile(p);
-      tiles.set(p.sid, t);
-      palco.append(t.tile);
-    }
-
     const streamTela = p.local ? rtc.minhaTela() : rtc.streamDaTela(p.peer);
     const streamVoz = p.local ? null : rtc.streamDaVoz(p.peer);
-    const temImagem = rtc.temImagem(streamTela);
+    p.transmitindo = rtc.temImagem(streamTela);
 
-    if (t.video.srcObject !== (streamTela || null)) t.video.srcObject = streamTela || null;
-
-    if (!p.local) {
-      // o mesmo stream da tela alimenta o <video> (mudo) e o <audio> do som dela
-      trocarFonte(t.audioTela, rtc.temSom(streamTela) ? streamTela : null);
-      trocarFonte(t.audioVoz, rtc.temSom(streamVoz) ? streamVoz : null);
-      aplicarSom(p.sid);
-    }
-
-    const s = p.local ? null : somDe(p.sid);
-    t.tile.classList.toggle('sem-video', !temImagem);
-    t.tile.classList.toggle('focado', focado === p.sid);
-    t.tile.classList.toggle('mudo', !!s?.mudo);
-    t.nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
-    t.vazio.textContent = p.local ? 'sua tela aparece aqui' : `${p.nome} não está compartilhando`;
-    t.ponto.className = 'ponto'
-      + (p.mic ? ' ligado' : '')
-      + (['failed', 'disconnected'].includes(p.conexao) ? ' ruim' : '');
-    t.ponto.title = p.mic ? 'microfone ligado' : 'microfone desligado';
-    t.silenciado.hidden = !s?.mudo;
+    desenharPessoa(p, streamTela, streamVoz);
+    if (p.transmitindo) desenharTile(p, streamTela);
+    else removerTile(p.sid);
   }
 
-  for (const [sid, t] of tiles) {
-    if (vistos.has(sid)) continue;
-    t.tile.remove();
-    tiles.delete(sid);
-    som.delete(sid);
-    if (menuAberto === sid) fecharMenu();
-  }
+  const vivos = new Set(lista.map(p => p.sid));
+  for (const sid of [...pessoas.keys()]) if (!vivos.has(sid)) removerPessoa(sid);
+  for (const sid of [...tiles.keys()]) if (!vivos.has(sid)) removerTile(sid);
 
+  if (focado && !tiles.has(focado)) focado = null;
   palco.classList.toggle('foco', !!focado);
-  $('contagem').textContent = `${lista.length} de ${config.limite_sala || 8}`;
-  $('btn-tela').textContent = rtc.eu.tela ? 'Parar de compartilhar' : 'Compartilhar tela';
-  $('btn-tela').classList.toggle('ativo', rtc.eu.tela);
-  $('btn-mic').textContent = rtc.eu.mic ? 'Desligar microfone' : 'Ligar microfone';
-  $('btn-mic').classList.toggle('ativo', rtc.eu.mic);
+
+  const estado = conexaoCaiu ? 'erro' : !entrou ? 'conectando' : tiles.size ? null : 'vazio';
+  $('estado-erro').hidden = estado !== 'erro';
+  $('estado-conectando').hidden = estado !== 'conectando';
+  $('estado-vazio').hidden = estado !== 'vazio';
+
+  $('contagem-n').textContent = `${lista.length}/${config.limite_sala || 8}`;
+  atualizarBotao($('btn-tela'), rtc.eu.tela, {
+    ligado: ['screen-share-off', 'Parar de compartilhar'],
+    desligado: ['screen-share', 'Compartilhar tela'],
+  });
+  atualizarBotao($('btn-mic'), rtc.eu.mic, {
+    ligado: ['mic', 'Desligar microfone'],
+    desligado: ['mic-off', 'Ligar microfone'],
+  });
+}
+
+function atualizarBotao(botao, ligado, textos) {
+  const [nomeIcone, texto] = ligado ? textos.ligado : textos.desligado;
+  trocarIcone(botao, nomeIcone);
+  botao.querySelector('.rotulo-botao').textContent = texto;
+  botao.classList.toggle('ligado', ligado);
+  // em tela estreita o rótulo some e sobra o ícone: o nome tem que vir por aqui
+  botao.title = texto;
+  botao.setAttribute('aria-label', texto);
+}
+
+/* ---------- pastilha (todo mundo) ---------- */
+
+function desenharPessoa(p, streamTela, streamVoz) {
+  let el = pessoas.get(p.sid);
+  if (!el) {
+    el = criarPessoa(p);
+    pessoas.set(p.sid, el);
+    fila.append(el.chip);
+  }
+
+  const s = p.local ? null : somDe(p.sid);
+
+  el.nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
+  el.avatar.textContent = inicial(p.nome);
+  el.chip.classList.toggle('transmitindo', !!p.transmitindo);
+  el.chip.classList.toggle('caiu', ['failed', 'disconnected'].includes(p.conexao));
+  el.chip.title = p.local ? 'você' : 'clique para o volume desta pessoa';
+
+  trocarIcone(el.marcaMic, p.mic ? 'mic' : 'mic-off');
+  el.marcaMic.classList.toggle('ligado', !!p.mic);
+  el.marcaMic.title = p.mic ? 'microfone ligado' : 'microfone desligado';
+  el.marcaMudo.hidden = !s?.mudo;
+
+  if (!p.local) {
+    // o mesmo stream da tela alimenta o <video> (mudo) e o <audio> do som dela
+    trocarFonte(el.audioTela, rtc.temSom(streamTela) ? streamTela : null);
+    trocarFonte(el.audioVoz, rtc.temSom(streamVoz) ? streamVoz : null);
+    aplicarSom(p.sid);
+  }
+}
+
+function criarPessoa(p) {
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'pessoa';
+  chip.dataset.sid = p.sid;
+
+  const avatar = avatarDe(p.nome);
+  const nome = document.createElement('span');
+  nome.className = 'pessoa-nome';
+  const marcaMic = document.createElement('span');
+  marcaMic.className = 'marca-mic';
+  marcaMic.append(icone('mic-off'));
+  marcaMic.dataset.icone = 'mic-off';
+  const marcaMudo = document.createElement('span');
+  marcaMudo.className = 'marca-mudo';
+  marcaMudo.title = 'silenciado só pra você';
+  marcaMudo.hidden = true;
+  marcaMudo.append(icone('volume-x'));
+  chip.append(avatar, nome, marcaMic, marcaMudo);
+
+  const audioVoz = document.createElement('audio');
+  const audioTela = document.createElement('audio');
+  for (const a of [audioVoz, audioTela]) { a.autoplay = true; chip.append(a); }
+
+  const abrir = e => {
+    e.preventDefault();
+    /* sem isto o clique sobe até o document, que fecha "o menu aberto porque
+       clicaram fora dele" — e o menu abriria e sumiria no mesmo evento */
+    e.stopPropagation();
+    const r = chip.getBoundingClientRect();
+    abrirMenu(p.sid, e.clientX || r.left, e.clientY || r.top);
+  };
+  chip.addEventListener('click', abrir);
+  chip.addEventListener('contextmenu', abrir);
+
+  return { chip, avatar, nome, marcaMic, marcaMudo, audioVoz, audioTela };
+}
+
+function removerPessoa(sid) {
+  pessoas.get(sid)?.chip.remove();
+  pessoas.delete(sid);
+  som.delete(sid);
+  if (menuAberto === sid) fecharMenu();
+}
+
+/* ---------- tela no palco (só de quem compartilha) ---------- */
+
+function desenharTile(p, streamTela) {
+  let t = tiles.get(p.sid);
+  if (!t) {
+    t = criarTile(p);
+    tiles.set(p.sid, t);
+    palco.append(t.tile);
+  }
+
+  const s = p.local ? null : somDe(p.sid);
+  if (t.video.srcObject !== streamTela) t.video.srcObject = streamTela;
+
+  t.tile.classList.toggle('focado', focado === p.sid);
+  t.nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
+  t.marcaSom.hidden = p.local || !rtc.temSom(streamTela);
+  t.marcaMudo.hidden = !s?.mudo;
 }
 
 function criarTile(p) {
   const tile = document.createElement('div');
-  tile.className = 'tile sem-video';
+  tile.className = 'tile';
   tile.dataset.sid = p.sid;
   tile.tabIndex = 0;
+  tile.title = 'clique para ampliar · duplo clique para tela cheia';
 
   const video = document.createElement('video');
   video.autoplay = true;
   video.playsInline = true;
-  video.muted = true;   // o som sai pelos <audio>; aqui só evitaria eco
+  video.muted = true;   // o som sai pelos <audio> da pastilha; aqui daria eco
   tile.append(video);
-
-  const vazio = document.createElement('div');
-  vazio.className = 'vazio';
-  tile.append(vazio);
 
   const rotulo = document.createElement('div');
   rotulo.className = 'rotulo';
-  const ponto = document.createElement('span');
-  ponto.className = 'ponto';
   const nome = document.createElement('span');
-  const silenciado = document.createElement('span');
-  silenciado.textContent = '🔇';
-  silenciado.title = 'silenciado só pra você';
-  silenciado.hidden = true;
-  rotulo.append(ponto, nome, silenciado);
+  nome.className = 'nome';
+  const marcaSom = document.createElement('span');
+  marcaSom.className = 'marca-som';
+  marcaSom.title = 'transmitindo com som';
+  marcaSom.hidden = true;
+  marcaSom.append(icone('volume-2'));
+  const marcaMudo = document.createElement('span');
+  marcaMudo.className = 'marca-mudo';
+  marcaMudo.title = 'silenciado só pra você';
+  marcaMudo.hidden = true;
+  marcaMudo.append(icone('volume-x'));
+  rotulo.append(nome, marcaSom, marcaMudo);
   tile.append(rotulo);
-
-  const audioVoz = document.createElement('audio');
-  const audioTela = document.createElement('audio');
-  for (const a of [audioVoz, audioTela]) { a.autoplay = true; tile.append(a); }
 
   tile.addEventListener('click', () => focar(p.sid));
   tile.addEventListener('dblclick', () => telaCheia(p.sid));
+  tile.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focar(p.sid); }
+  });
   tile.addEventListener('contextmenu', e => {
     e.preventDefault();
     abrirMenu(p.sid, e.clientX, e.clientY);
   });
 
-  return { tile, video, vazio, nome, ponto, silenciado, audioVoz, audioTela };
+  return { tile, video, nome, marcaSom, marcaMudo };
 }
+
+function removerTile(sid) {
+  tiles.get(sid)?.tile.remove();
+  tiles.delete(sid);
+}
+
+/* ---------- áudio ---------- */
 
 /**
  * Trocar o srcObject reinicia a reprodução, então só troca quando muda mesmo.
@@ -365,23 +503,49 @@ function trocarFonte(el, stream) {
 }
 
 function aplicarSom(sid) {
-  const t = tiles.get(sid);
-  if (!t) return;
+  const el = pessoas.get(sid);
+  if (!el) return;
   const s = somDe(sid);
-  t.audioVoz.volume = s.mudo ? 0 : s.voz;
-  t.audioTela.volume = s.mudo ? 0 : s.tela;
+  el.audioVoz.volume = s.mudo ? 0 : s.voz;
+  el.audioTela.volume = s.mudo ? 0 : s.tela;
 }
 
 /* ================= utilidades ================= */
 
+function pintarIcones(raiz) {
+  for (const el of raiz.querySelectorAll('[data-icone]')) {
+    if (!el.firstElementChild) el.append(icone(el.dataset.icone));
+  }
+}
+
+function trocarIcone(dentroDe, nome) {
+  const alvo = dentroDe.matches('[data-icone]') ? dentroDe : dentroDe.querySelector('[data-icone]');
+  if (!alvo || alvo.dataset.icone === nome) return;
+  alvo.dataset.icone = nome;
+  alvo.replaceChildren(icone(nome));
+}
+
+function avatarDe(nome) {
+  const el = document.createElement('span');
+  el.className = 'avatar';
+  el.textContent = inicial(nome);
+  el.setAttribute('aria-hidden', 'true');
+  return el;
+}
+
+function inicial(nome) {
+  return (nome || '?').trim().charAt(0) || '?';
+}
+
 function voltarParaEntrada() {
   fecharMenu();
   focado = null;
+  entrou = false;
+  conexaoCaiu = false;
   telaSala.hidden = true;
   telaEntrada.hidden = false;
-  for (const t of tiles.values()) t.tile.remove();
-  tiles.clear();
-  som.clear();
+  for (const sid of [...tiles.keys()]) removerTile(sid);
+  for (const sid of [...pessoas.keys()]) removerPessoa(sid);
 }
 
 function avisar(onde, texto) {
