@@ -14,16 +14,21 @@
 //   - 48000 Hz em vez dos 44100 do exemplo: é a taxa que o worklet da página
 //     espera, e evitar reamostragem no caminho.
 //
+// Requer Windows 10 build 20348 ou mais novo — é quando a API de captura por
+// processo apareceu. Em sistema anterior a ativação falha e este programa sai
+// com código diferente de zero, que é como o app do lado de fora descobre.
+//
 // Uso:  captura.exe <pid>
 // Saída: PCM 16 bits com sinal, 2 canais, 48000 Hz, intercalado, no stdout.
 
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
-#include <audioclientactivationparams.h>
+#include "sdk-compat.h"   // traz o audioclientactivationparams.h, ou o declara
 #include <io.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <algorithm>   // std::min; o `min` de windows.h é macro só no MSVC
 
 static const int CANAIS = 2;
 static const int TAXA = 48000;
@@ -176,7 +181,7 @@ int wmain(int argc, wchar_t** argv)
                 static const BYTE zeros[4096] = {};
                 for (size_t escrito = 0; escrito < bytes; escrito += sizeof(zeros))
                 {
-                    const size_t pedaco = min(sizeof(zeros), bytes - escrito);
+                    const size_t pedaco = std::min(sizeof(zeros), bytes - escrito);
                     if (fwrite(zeros, 1, pedaco, stdout) != pedaco) { captura->ReleaseBuffer(quadros); goto fim; }
                 }
             }

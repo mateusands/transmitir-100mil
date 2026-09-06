@@ -246,7 +246,7 @@ TRANSMISSOR_URL=https://algo.trycloudflare.com npm run app
 |---|---|---|
 | Linux | PipeWire, pelas ferramentas dele | `pw-dump`, `pw-loopback`, `pw-link` |
 | macOS | **ainda não** — veja abaixo | — |
-| Windows | WASAPI process loopback, código nosso | Windows 10 2004 (build 19041), **só x64**, e os binários em `desktop/nativo/win/` |
+| Windows | WASAPI process loopback, código nosso | Windows 10 build 20348, **só x64** |
 
 No **Linux** não há binário nenhum: falamos com o PipeWire pelas ferramentas
 que vêm com ele — `pw-dump` para ler o grafo, `pw-loopback` para criar a fonte
@@ -264,16 +264,17 @@ Microsoft (MIT), sem o Media Foundation e sem a WIL que ele arrasta. Quem
 compila é o GitHub Actions, num runner Windows; o runtime da Microsoft entra
 estaticamente, então não há redistribuível a instalar.
 
-**Eles não vêm no `git clone`, e o `npm install` não os compila.** Binário só
-entra no repositório com alguém sabendo de onde veio — foi por isso que tiramos
-os de terceiros. Para tê-los, baixe o artefato `binarios-windows-x64` da
-execução do workflow e coloque os dois em `desktop/nativo/win/`; o
-[LEIA-ME de lá](desktop/nativo/win/LEIA-ME.md) tem o passo a passo e a linha de
-comando para compilar na mão, se você tiver o Visual Studio.
+Os executáveis vêm no `git clone`, então **não há nada a compilar para usar**.
+Para regenerá-los, de qualquer Linux ou macOS e sem instalar nada no sistema:
 
-Sem eles, o app avisa no console e a opção de som não aparece no Windows.
-**Compartilhar tela continua funcionando** — só o som por aplicativo depende
-disto.
+```bash
+npm run compilar-windows
+```
+
+Ele baixa a toolchain llvm-mingw para dentro de `.bin/`, confere a soma antes de
+extrair e compila. A CI faz o mesmo com o MSVC, o compilador da própria
+Microsoft — se os dois concordam, é sinal melhor do que só um. Detalhes no
+[LEIA-ME de lá](desktop/nativo/win/LEIA-ME.md).
 
 São as APIs que os próprios sistemas criaram para isto. Os binários vêm
 prontos: `npm install` não compila nada, e nada é instalado fora da pasta do
@@ -281,11 +282,10 @@ projeto — sem driver de áudio virtual, sem serviço, sem cabo virtual.
 
 **Ressalvas honestas:**
 
-- O caminho do **Windows ainda não foi compilado nem exercitado**. O fonte está
-  escrito contra a API documentada e sobre o exemplo da Microsoft; a CI compila
-  no primeiro push, e testar precisa de uma máquina Windows. Até lá,
-  `disponivel` devolve false porque os binários não existem, e a opção de som
-  não aparece.
+- O caminho do **Windows compila, mas ninguém o rodou**. Os binários são
+  gerados por dois compiladores diferentes (llvm-mingw aqui, MSVC na CI) e
+  nenhum dos dois reclama — mas compilar não é testar. Se falhar num Windows,
+  é aí que se olha primeiro.
 - No **macOS** o som por aplicativo **ainda não existe** — compartilhar tela
   funciona normalmente, mas a opção de som nem aparece. O caminho é conhecido
   (Core Audio process taps, macOS 14.2+), e falta escrevê-lo e, principalmente,
@@ -443,7 +443,7 @@ desktop/main.cjs        app de mesa: janela, seletor de tela, servidor embutido
 desktop/som.cjs         porta comum do som por aplicativo, nas três plataformas
 desktop/som-linux.cjs     Linux: fonte virtual e ligações, pelas ferramentas do PipeWire
 desktop/som-pcm.cjs       Windows: blocos de PCM dos nossos binários
-desktop/nativo/win/     fonte C++ da captura do Windows (compilado pela CI)
+desktop/nativo/win/     captura do Windows: fonte C++ e os executáveis
 desktop/seletor.html    seletor de tela próprio (onde o sistema não tem um)
 desktop/ponte.cjs       ponte estreita entre a página e o processo principal
 tools/hospedar.mjs      servidor + túnel, encerrados juntos

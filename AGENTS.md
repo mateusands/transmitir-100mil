@@ -21,6 +21,7 @@ npm run hospedar     # servidor + túnel do Cloudflare, encerrados juntos
 npm run app          # app de mesa (Electron): seletor próprio e som por aplicativo
 npm run check        # sintaxe de todos os módulos, inclusive desktop/
 npm run gerar-icones # regera public/js/icones.js (busca o Lucide na hora)
+npm run compilar-windows # regera os .exe da captura do Windows, de um Linux
 ```
 
 Node.js 22 ou mais novo. `public/` é servido como está, sem empacotador nem
@@ -47,7 +48,7 @@ comando que interessa.
 | `desktop/som.cjs` | porta comum do som por aplicativo; despacha por plataforma |
 | `desktop/som-linux.cjs` | Linux: fonte virtual e ligações, pelas ferramentas do PipeWire |
 | `desktop/som-pcm.cjs` | Windows: blocos de PCM dos nossos binários (macOS ainda não tem som) |
-| `desktop/nativo/win/*.cpp` | fonte da captura do Windows; quem compila é a CI, e o `.exe` **não** é versionado |
+| `desktop/nativo/win/` | captura do Windows: fonte C++ e os `.exe`; regere com `compilar-windows` |
 | `desktop/ponte.cjs` | ponte estreita entre a página e o processo principal |
 | `tools/hospedar.mjs` | sobe servidor + túnel e derruba os dois no `Ctrl+C` |
 | `iniciar-*.sh/.command/.bat` | lançadores: perguntam hospedar, app, ou os dois |
