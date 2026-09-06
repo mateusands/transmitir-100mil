@@ -8,7 +8,18 @@ Uma chamada só, sem código de sala: quem abre o link digita o nome e entra.
 
 ## Requisitos
 
+**Antes de abrir qualquer lançador, instale Node.js 22 ou superior e npm.**
+Eles são obrigatórios para hospedar a sala. **Para gerar um link público e
+convidar outras pessoas pela internet, instale também o `cloudflared`.**
+As instruções por sistema estão na seção **Instalar**, logo abaixo.
+
+Os lançadores **não instalam Node.js, npm ou `cloudflared` automaticamente**;
+instalam apenas as dependências do projeto na primeira execução. Sem Node.js
+ou npm, a sala não inicia. Sem `cloudflared`, ela inicia em modo local,
+sem link público.
+
 - **Node.js 22 ou superior** (só para quem hospeda)
+- **npm** (gerenciador de dependências, normalmente instalado junto com o Node.js)
 - **cloudflared** (só para quem hospeda, e só se for expor pra fora da máquina)
 - Um navegador baseado em Chromium — Chrome, Edge, Brave, Vivaldi — para quem
   vai compartilhar tela **com som**. Firefox entra na chamada normalmente, mas
@@ -71,13 +82,32 @@ juntos, e o endereço morre ali — a próxima execução gera outro.
 
 ### Abrir sem digitar comandos
 
-Os lançadores instalam as dependências na primeira execução, validam Node 22+
-e `cloudflared`, iniciam a sala e deixam a janela aberta para mostrar o link.
+**Primeiro, conclua a instalação dos requisitos acima.** Abrir um lançador
+não substitui a instalação de Node.js, npm e, para acesso público, `cloudflared`.
+
+Os lançadores validam Node 22+ e npm, instalam as dependências na primeira
+execução e iniciam a sala. Sem `cloudflared`, avisam e continuam em modo local,
+sem link público. Nesse modo, compartilhar tela exige usar `localhost`;
+acesso pelo IP da LAN não fornece o HTTPS necessário para capturar tela.
 
 - **Windows:** dê duplo clique em `iniciar-windows.bat`.
-- **Ubuntu/Debian:** dê duplo clique em `iniciar-linux.sh` e escolha
-  **Executar** se o gerenciador de arquivos perguntar. O lançador abre
-  automaticamente o terminal configurado no sistema e inicia a sala.
+- **macOS:** dê duplo clique em `iniciar-macos.command`, na pasta do projeto.
+  O Terminal.app abre e inicia a sala. O script usa recursos do Bash 3.2 do
+  sistema, sem depender de `readlink -f`.
+- **Linux (Ubuntu/Debian e Arch/CachyOS):** nas propriedades de
+  `iniciar-linux.sh`, habilite a permissão de execução se necessário e use
+  **Executar** ou **Executar no terminal**, caso o gerenciador ofereça essa ação.
+  O duplo clique não é universal: no GNOME Files, por exemplo, o script pode
+  abrir no editor. Nesse caso, abra um terminal na pasta do projeto e execute
+  `bash iniciar-linux.sh`.
+
+Ao executar o script Linux sem terminal, ele procura `x-terminal-emulator`
+primeiro (preferência configurada no Debian/Ubuntu), depois o executável
+indicado por `TERMINAL` e então Konsole, GNOME Terminal, Xfce Terminal,
+Alacritty, Kitty, Foot ou XTerm. `TERMINAL` deve conter apenas o nome ou caminho
+do executável, sem argumentos. Não há arquivo `.desktop` neste projeto.
+Mantenha os lançadores na pasta do projeto; se extrair um ZIP no macOS e perder
+a permissão de execução, habilite-a com `chmod +x iniciar-macos.command`.
 
 Se a janela se perdeu:
 
