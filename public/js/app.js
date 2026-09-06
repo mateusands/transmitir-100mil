@@ -9,6 +9,10 @@
 import * as rtc from './rtc.js';
 import { icone } from './icones.js';
 
+// exposto só pra depurar pelo console do navegador (ver resolução/bitrate
+// reais saindo com stats.getStats()) — nada aqui é usado pela interface
+window.__rtc = rtc;
+
 const $ = id => document.getElementById(id);
 
 const telaEntrada = $('entrada');
@@ -52,6 +56,16 @@ pintarIcones(document);
 
 $('nome').value = localStorage.getItem('transmissor:nome') || '';
 
+$('resolucao-tela').value = localStorage.getItem('transmissor:resolucao') || '720p';
+$('resolucao-tela').addEventListener('change', () => {
+  localStorage.setItem('transmissor:resolucao', $('resolucao-tela').value);
+});
+
+$('fps-tela').value = localStorage.getItem('transmissor:fps') || '60';
+$('fps-tela').addEventListener('change', () => {
+  localStorage.setItem('transmissor:fps', $('fps-tela').value);
+});
+
 $('form-entrar').addEventListener('submit', async e => {
   e.preventDefault();
   nomeAtual = $('nome').value.trim();
@@ -93,7 +107,12 @@ $('form-entrar').addEventListener('submit', async e => {
 /* ================= barra ================= */
 
 async function compartilhar() {
-  try { await rtc.alternarTela(); }
+  try {
+    await rtc.alternarTela({
+      resolucao: $('resolucao-tela').value,
+      fps: Number($('fps-tela').value),
+    });
+  }
   catch (e) {
     // cancelar o diálogo do navegador é rotina, não erro
     if (e?.name !== 'NotAllowedError') avisar('sala', 'Não consegui capturar a tela: ' + e.message);
@@ -101,8 +120,57 @@ async function compartilhar() {
   renderizar();
 }
 
-$('btn-tela').addEventListener('click', compartilhar);
-$('vazio-compartilhar').addEventListener('click', compartilhar);
+/* O painel serve dois momentos: escolher a qualidade antes de começar
+   ("iniciar") e ajustar ao vivo enquanto já está compartilhando ("ajustar",
+   via applyConstraints — sem reabrir o diálogo do navegador nem cair a
+   chamada). O botão de confirmar muda de rótulo e ação conforme o momento. */
+const painelQualidade = $('painel-qualidade');
+let modoPainelQualidade = null;
+
+function abrirPainelQualidade(ancora) {
+  modoPainelQualidade = rtc.eu.tela ? 'ajustar' : 'iniciar';
+
+  const confirmar = $('painel-compartilhar');
+  trocarIcone(confirmar, modoPainelQualidade === 'ajustar' ? 'check' : 'screen-share');
+  confirmar.querySelector('.rotulo-botao').textContent =
+    modoPainelQualidade === 'ajustar' ? 'Aplicar' : 'Compartilhar tela';
+
+  painelQualidade.hidden = false;
+  const a = ancora.getBoundingClientRect();
+  const p = painelQualidade.getBoundingClientRect();
+  painelQualidade.style.left = Math.max(8, Math.min(a.left, innerWidth - p.width - 8)) + 'px';
+  painelQualidade.style.top = Math.max(8, a.top - p.height - 8) + 'px';
+}
+
+function fecharPainelQualidade() {
+  painelQualidade.hidden = true;
+  modoPainelQualidade = null;
+}
+
+function fecharPopups() {
+  fecharMenu();
+  fecharPainelQualidade();
+}
+
+$('btn-tela').addEventListener('click', () => {
+  if (rtc.eu.tela) { compartilhar(); return; }
+  abrirPainelQualidade($('btn-tela'));
+});
+$('btn-qualidade').addEventListener('click', () => abrirPainelQualidade($('btn-qualidade')));
+$('vazio-compartilhar').addEventListener('click', () => abrirPainelQualidade($('vazio-compartilhar')));
+
+$('painel-compartilhar').addEventListener('click', () => {
+  const modo = modoPainelQualidade;
+  fecharPainelQualidade();
+  if (modo === 'ajustar') {
+    rtc.mudarQualidadeTela({
+      resolucao: $('resolucao-tela').value,
+      fps: Number($('fps-tela').value),
+    });
+  } else {
+    compartilhar();
+  }
+});
 
 $('btn-mic').addEventListener('click', async () => {
   try { await rtc.alternarMic(); }
@@ -161,7 +229,7 @@ function telaCheia(sid) {
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  fecharMenu();
+  fecharPopups();
   if (focado && !document.fullscreenElement) { focado = null; renderizar(); }
 });
 
@@ -279,10 +347,14 @@ function itemSlider(rotulo, valor, aoMudar, desativado) {
 
 document.addEventListener('click', e => {
   if (menuAberto && !menu.hidden && !menu.contains(e.target)) fecharMenu();
+  if (!painelQualidade.hidden && !painelQualidade.contains(e.target)
+    && !e.target.closest('#btn-tela, #btn-qualidade, #vazio-compartilhar')) {
+    fecharPainelQualidade();
+  }
 });
-palco.addEventListener('scroll', fecharMenu);
-window.addEventListener('resize', fecharMenu);
-window.addEventListener('blur', fecharMenu);
+palco.addEventListener('scroll', fecharPopups);
+window.addEventListener('resize', fecharPopups);
+window.addEventListener('blur', fecharPopups);
 
 /* ================= desenho ================= */
 
@@ -330,6 +402,10 @@ function renderizar() {
     ligado: ['screen-share-off', 'Parar de compartilhar'],
     desligado: ['screen-share', 'Compartilhar tela'],
   });
+  $('btn-qualidade').hidden = !rtc.eu.tela;
+  // se a tela caiu (ex.: botão nativo do navegador) com o painel de ajuste
+  // ao vivo aberto, ele não faz mais sentido — fecha
+  if (modoPainelQualidade === 'ajustar' && !rtc.eu.tela) fecharPainelQualidade();
   atualizarBotao($('btn-mic'), rtc.eu.mic, {
     ligado: ['mic', 'Desligar microfone'],
     desligado: ['mic-off', 'Ligar microfone'],
