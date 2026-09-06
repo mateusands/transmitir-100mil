@@ -1,18 +1,28 @@
 {
-  "name": "transmissor",
+  "name": "transmitir-100mil",
   "version": "0.1.0",
   "private": true,
+  "description": "Chamada P2P de compartilhamento de tela, com ou sem som, publicada por um tunel temporario do Cloudflare",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mateusands/transmitir-100mil.git"
+  },
   "type": "module",
-  "description": "Sala de compartilhamento de tela (com ou sem som) por WebRTC, exposta por um tunel temporario do Cloudflare",
   "scripts": {
     "start": "node server/index.js",
-    "hospedar": "node tools/hospedar.mjs"
+    "hospedar": "node tools/hospedar.mjs",
+    "check": "node --check server/index.js && node --check tools/hospedar.mjs && node --check tools/gerar-icones.mjs && node --check public/js/app.js && node --check public/js/rtc.js && node --check public/js/icones.js",
+    "gerar-icones": "node tools/gerar-icones.mjs"
   },
   "dependencies": {
-    "express": "^4.21.2",
+    "express": "^5.2.1",
     "socket.io": "^4.8.1"
   },
+  "devDependencies": {
+    "lucide-static": "^1.41.0"
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }
