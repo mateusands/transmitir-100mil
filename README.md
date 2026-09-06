@@ -217,8 +217,7 @@ mandar uma mudança, em [CONTRIBUTING.md](CONTRIBUTING.md).
 ## 🤖 Uso de IA
 
 Transparência importa aqui, então: este projeto foi construído **com auxílio de
-inteligência artificial** — o [Claude Code](https://claude.com/claude-code) da
-Anthropic — usada como assistente ao longo do desenvolvimento e da manutenção.
+inteligência artificial** usada como assistente ao longo do desenvolvimento e da manutenção.
 
 Na prática, a IA entra no trabalho repetitivo e de baixo nível: escrever o
 código de um caminho já decidido, converter ícones, redigir e atualizar
