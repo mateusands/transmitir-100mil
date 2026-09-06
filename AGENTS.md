@@ -39,11 +39,11 @@ comando que interessa.
 | `public/js/rtc.js` | malha WebRTC: negociação, faixas, o que é voz e o que é som da tela |
 | `public/js/app.js` | interface: palco, fila de pessoas, foco, menu de volume |
 | `public/js/icones.js` | **gerado** — não edite à mão |
-| `public/js/pcm-worklet.js` | PCM cru do app de mesa vira faixa de áudio (macOS/Windows) |
+| `public/js/pcm-worklet.js` | PCM cru do app de mesa vira faixa de áudio (Windows) |
 | `desktop/main.cjs` | app de mesa: janela, seletor de tela, servidor embutido |
 | `desktop/som.cjs` | porta comum do som por aplicativo; despacha por plataforma |
 | `desktop/som-linux.cjs` | Linux: fonte virtual e ligações, pelas ferramentas do PipeWire |
-| `desktop/som-pcm.cjs` | macOS e Windows: blocos de PCM das bibliotecas nativas |
+| `desktop/som-pcm.cjs` | Windows: blocos de PCM da biblioteca nativa (macOS ainda não tem som) |
 | `desktop/ponte.cjs` | ponte estreita entre a página e o processo principal |
 | `tools/hospedar.mjs` | sobe servidor + túnel e derruba os dois no `Ctrl+C` |
 | `iniciar-*.sh/.command/.bat` | lançadores: perguntam hospedar, app, ou os dois |

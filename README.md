@@ -249,7 +249,7 @@ TRANSMISSOR_URL=https://algo.trycloudflare.com npm run app
 | | como captura | além do Node |
 |---|---|---|
 | Linux | PipeWire, pelas ferramentas dele | `pw-dump`, `pw-loopback`, `pw-link` |
-| macOS | Core Audio process taps, via `audiotee` | macOS 14.2 ou mais novo |
+| macOS | **ainda não** — veja abaixo | — |
 | Windows | WASAPI process loopback, via `application-loopback` | Windows 10 2004 (build 19041), **só x64**, e o VC++ Redistributable |
 
 No **Linux** não há binário nenhum: falamos com o PipeWire pelas ferramentas
@@ -275,13 +275,14 @@ projeto — sem driver de áudio virtual, sem serviço, sem cabo virtual.
 
 **Ressalvas honestas:**
 
-- O caminho de **macOS e Windows ainda não foi exercitado em máquina real**. Foi
-  escrito contra a API e o formato de PCM lidos no fonte das bibliotecas, e
-  validado de ponta a ponta com áudio sintético. No Linux está testado com duas
-  pessoas. Se falhar num Mac ou num Windows, comece a olhar por aí.
-- No **macOS** a lista mostra aplicativos abertos, não aplicativos tocando: não
-  há como saber quem tem som sem código nativo. Escolher um que está mudo
-  devolve erro, não silêncio.
+- O caminho do **Windows ainda não foi exercitado em máquina real**. Foi escrito
+  contra a API e o formato de PCM lidos no fonte, e validado de ponta a ponta com
+  áudio sintético. No Linux está testado com duas pessoas. Se falhar num Windows,
+  comece a olhar por aí.
+- No **macOS** o som por aplicativo **ainda não existe** — compartilhar tela
+  funciona normalmente, mas a opção de som nem aparece. O caminho é conhecido
+  (Core Audio process taps, macOS 14.2+), e falta escrevê-lo e, principalmente,
+  ter um Mac para testar. Oferecer sem testar seria pior que não oferecer.
 - No **Windows** só há binário x64. Windows em ARM não roda.
 
 ## Na chamada
@@ -412,12 +413,12 @@ cor é fixa e não segue o estado do elemento.
 server/index.js         servidor: arquivos estáticos + relay de sinalização
 public/js/rtc.js        malha WebRTC (perfect negotiation), separa voz e som da tela
 public/js/app.js        interface: palco, fila de pessoas, foco, menu de volume
-public/js/pcm-worklet.js  PCM cru do app de mesa vira faixa de áudio (macOS/Windows)
+public/js/pcm-worklet.js  PCM cru do app de mesa vira faixa de áudio (Windows)
 public/js/icones.js     gerado — ícones do Lucide embutidos
 desktop/main.cjs        app de mesa: janela, seletor de tela, servidor embutido
 desktop/som.cjs         porta comum do som por aplicativo, nas três plataformas
 desktop/som-linux.cjs     Linux: fonte virtual e ligações, pelas ferramentas do PipeWire
-desktop/som-pcm.cjs       macOS e Windows: blocos de PCM das bibliotecas nativas
+desktop/som-pcm.cjs       Windows: blocos de PCM da biblioteca nativa
 desktop/seletor.html    seletor de tela próprio (onde o sistema não tem um)
 desktop/ponte.cjs       ponte estreita entre a página e o processo principal
 tools/hospedar.mjs      servidor + túnel, encerrados juntos

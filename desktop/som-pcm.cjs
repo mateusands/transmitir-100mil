@@ -1,36 +1,29 @@
-/* Som do aplicativo escolhido no macOS e no Windows.
+/* Som do aplicativo escolhido no Windows.
  *
- * Aqui não existe fonte de áudio virtual como no Linux: as bibliotecas nativas
- * entregam blocos de PCM cru, e quem os transforma em faixa é o worklet da
+ * Aqui não existe fonte de áudio virtual como no Linux: a biblioteca nativa
+ * entrega blocos de PCM cru, e quem os transforma em faixa é o worklet da
  * página (public/js/pcm-worklet.js).
  *
- * O formato NÃO é suposição — foi lido no fonte das duas:
- *   - Windows: LoopbackCapture.cpp fixa WAVE_FORMAT_PCM, 2 canais, 48000 Hz,
- *     16 bits. É uma porta do exemplo ApplicationLoopback da Microsoft.
- *   - macOS: o AudioFormatConverter do audiotee monta o formato de destino com
- *     kAudioFormatFlagIsSignedInteger, então pedir uma taxa garante inteiro de
- *     16 bits. Vem em 1 canal.
+ * O formato NÃO é suposição — foi lido no fonte: LoopbackCapture.cpp fixa
+ * WAVE_FORMAT_PCM, 2 canais, 48000 Hz, 16 bits. É a API que a própria
+ * Microsoft criou para isto, o WASAPI process loopback.
  *
- * As duas usam a API que o próprio sistema criou para isto — WASAPI process
- * loopback e Core Audio process taps — e ambas exigem sistema recente.
+ * macOS ainda não tem som por aplicativo. O caminho existe — Core Audio
+ * process taps, macOS 14.2+ — mas exige um binário Swift que precisamos
+ * escrever e, principalmente, PODER TESTAR num Mac. Enquanto isso, `disponivel`
+ * devolve false lá e a opção nem aparece, o que é melhor que oferecer e falhar.
  */
 
 
-const { app } = require('electron');
-const { execFile } = require('node:child_process');
-
 const TAXA = 48000;
-const FORMATO = {
-  darwin: { taxa: TAXA, canais: 1 },
-  win32: { taxa: TAXA, canais: 2 },
-};
+const FORMATO = { win32: { taxa: TAXA, canais: 2 } };
 
 let ativo = null;   // { parar() } enquanto há captura
 
 function disponivel() {
   const f = FORMATO[process.platform];
   if (!f) return false;
-  try { require(process.platform === 'darwin' ? 'audiotee' : 'application-loopback'); return true; }
+  try { require('application-loopback'); return true; }
   catch (e) { console.error('captura de áudio não carregou:', e.message); return false; }
 }
 
@@ -54,71 +47,6 @@ function fatiador(aoReceber) {
     }
     if (dados.length) aoReceber(new Uint8Array(dados));   // cópia, desprendida do bloco
   };
-}
-
-/* ================= macOS ================= */
-
-/**
- * Aplicativos com janela, que é o que dá para saber sem código nativo.
- *
- * O audiotee captura por PID mas não lista nada, e não há API no Electron que
- * diga quem está tocando. Então a lista é de aplicativos abertos, não de
- * aplicativos com som — escolher um que está mudo devolve erro em vez de
- * silêncio, e é assim que a pessoa descobre.
- */
-function aplicativosMac() {
-  return new Promise(resolve => {
-    execFile('ps', ['-axo', 'pid=,comm='], { maxBuffer: 4 << 20 }, (erro, saida) => {
-      if (erro) return resolve([]);
-      const vistos = new Map();
-      for (const linha of String(saida).split('\n')) {
-        const m = linha.trim().match(/^(\d+)\s+(.*\/([^/]+)\.app\/Contents\/MacOS\/.+)$/);
-        if (!m) continue;
-        const nome = m[3];
-        if (!vistos.has(nome)) vistos.set(nome, { id: m[1], nome });
-      }
-      resolve([...vistos.values()]);
-    });
-  });
-}
-
-/** Os PIDs que tocam o nosso próprio áudio — nunca podem entrar na captura. */
-function nossosPids() {
-  try { return app.getAppMetrics().map(p => p.pid).filter(Boolean); } catch { return []; }
-}
-
-async function ligarMac(alvo, excluidos, aoReceber) {
-  const { AudioTee } = require('audiotee');
-
-  /* 'tudo' vira exclusão por PID: o audiotee aceita vários. Traduzimos os
-     nomes excluídos para PID agora, porque é o que ele entende — e porque o
-     PID de ontem não serve para o processo de hoje. */
-  let opcoes;
-  if (alvo === 'tudo') {
-    const abertos = await aplicativosMac();
-    const fora = abertos.filter(a => excluidos.includes(a.nome)).map(a => Number(a.id));
-    opcoes = { excludeProcesses: [...nossosPids(), ...fora] };
-  } else {
-    opcoes = { includeProcesses: [Number(alvo)] };
-  }
-
-  // pedir a taxa é o que força a conversão para inteiro de 16 bits
-  const tee = new AudioTee({ sampleRate: TAXA, ...opcoes });
-  const entregar = fatiador(aoReceber);
-
-  let falha = null;
-  tee.on('error', e => { falha = e; console.error('audiotee:', e.message); });
-  tee.on('data', pedaco => entregar(pedaco.data));
-  await tee.start();
-
-  /* O binário morre se o PID escolhido não estiver tocando nada, e isso chega
-     depois do start(). Esperar um pouco troca um erro dito na cara por uma
-     transmissão muda que ninguém entende. */
-  await new Promise(r => setTimeout(r, 600));
-  if (falha) { try { await tee.stop(); } catch {} throw new Error(`${falha.message} — esse aplicativo está tocando algo?`); }
-
-  ativo = { parar: () => tee.stop() };
-  return FORMATO.darwin;
 }
 
 /* ================= Windows ================= */
@@ -163,7 +91,6 @@ function ligarWin(processId, aoReceber) {
  * nao sugerimos nada e a pessoa escolhe no menu.
  */
 async function sugestao(superficie, nomeDaFonte) {
-  if (process.platform === 'darwin') return { id: 'tudo', nome: 'tudo' };
   if (process.platform !== 'win32') return null;
   if (superficie !== 'window' || !nomeDaFonte) return null;
 
@@ -174,7 +101,6 @@ async function sugestao(superficie, nomeDaFonte) {
 /* ================= porta comum ================= */
 
 function aplicativos() {
-  if (process.platform === 'darwin') return aplicativosMac();
   if (process.platform === 'win32') return aplicativosWin();
   return Promise.resolve([]);
 }
@@ -185,7 +111,6 @@ function aplicativos() {
  */
 async function ligar(id, excluidos = [], aoReceber) {
   await desligar();
-  if (process.platform === 'darwin') return ligarMac(id, excluidos, aoReceber);
   if (process.platform === 'win32') return ligarWin(id, aoReceber);
   throw new Error('Esta plataforma não tem captura por aplicativo.');
 }
