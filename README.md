@@ -69,6 +69,16 @@ está na chamada.
 **Para encerrar:** `Ctrl+C` na mesma janela. Isso derruba o servidor e o túnel
 juntos, e o endereço morre ali — a próxima execução gera outro.
 
+### Abrir sem digitar comandos
+
+Os lançadores instalam as dependências na primeira execução, validam Node 22+
+e `cloudflared`, iniciam a sala e deixam a janela aberta para mostrar o link.
+
+- **Windows:** dê duplo clique em `iniciar-windows.bat`.
+- **Ubuntu/Debian:** dê duplo clique em `iniciar-linux.sh` e escolha
+  **Executar** se o gerenciador de arquivos perguntar. O lançador abre
+  automaticamente o terminal configurado no sistema e inicia a sala.
+
 Se a janela se perdeu:
 
 ```bash
