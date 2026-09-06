@@ -396,6 +396,16 @@ São do [Lucide](https://lucide.dev) (ISC), convertidos para dentro do projeto:
 npm run gerar-icones   # só quando mudar a lista em tools/gerar-icones.mjs
 ```
 
+O pacote do Lucide **não é dependência do projeto**: são 63 MB de SVG para
+produzir 4 KB de saída, e o resultado já está versionado em
+`public/js/icones.js`. O gerador o busca na hora, confere a soma que o npm
+publica e apaga a pasta temporária no fim.
+
+A página não busca nada de CDN nenhum — importa porque a chamada pode estar
+sendo servida por um túnel que é a única coisa que a rede de quem assiste
+alcança. Emoji também não entra na interface: o desenho muda a cada sistema, a
+cor é fixa e não segue o estado do elemento.
+
 ## Estrutura
 
 ```
