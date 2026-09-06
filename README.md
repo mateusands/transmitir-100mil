@@ -246,7 +246,7 @@ TRANSMISSOR_URL=https://algo.trycloudflare.com npm run app
 |---|---|---|
 | Linux | PipeWire, pelas ferramentas dele | `pw-dump`, `pw-loopback`, `pw-link` |
 | macOS | **ainda não** — veja abaixo | — |
-| Windows | WASAPI process loopback, código nosso | Windows 10 2004 (build 19041), **só x64** |
+| Windows | WASAPI process loopback, código nosso | Windows 10 2004 (build 19041), **só x64**, e os binários em `desktop/nativo/win/` |
 
 No **Linux** não há binário nenhum: falamos com o PipeWire pelas ferramentas
 que vêm com ele — `pw-dump` para ler o grafo, `pw-loopback` para criar a fonte
@@ -263,6 +263,17 @@ Os dois executáveis são **nossos**, compilados do fonte em
 Microsoft (MIT), sem o Media Foundation e sem a WIL que ele arrasta. Quem
 compila é o GitHub Actions, num runner Windows; o runtime da Microsoft entra
 estaticamente, então não há redistribuível a instalar.
+
+**Eles não vêm no `git clone`, e o `npm install` não os compila.** Binário só
+entra no repositório com alguém sabendo de onde veio — foi por isso que tiramos
+os de terceiros. Para tê-los, baixe o artefato `binarios-windows-x64` da
+execução do workflow e coloque os dois em `desktop/nativo/win/`; o
+[LEIA-ME de lá](desktop/nativo/win/LEIA-ME.md) tem o passo a passo e a linha de
+comando para compilar na mão, se você tiver o Visual Studio.
+
+Sem eles, o app avisa no console e a opção de som não aparece no Windows.
+**Compartilhar tela continua funcionando** — só o som por aplicativo depende
+disto.
 
 São as APIs que os próprios sistemas criaram para isto. Os binários vêm
 prontos: `npm install` não compila nada, e nada é instalado fora da pasta do

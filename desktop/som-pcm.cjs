@@ -33,16 +33,31 @@ const JANELAS = path.join(PASTA, 'janelas.exe');
 
 let ativo = null;   // { parar() } enquanto há captura
 
+let avisou = false;
+
 /**
  * Só no Windows, e só se os binários estiverem no lugar.
  *
- * Eles não vêm do npm: são compilados pela CI a partir do fonte ao lado, e
- * alguém os coloca aqui conscientemente. Enquanto não estiverem, a opção de som
- * não aparece — melhor do que aparecer e falhar na hora de usar.
+ * Eles não vêm do npm nem são compilados no `npm install`: saem do fonte ao
+ * lado, compilados pela CI, e alguém os coloca aqui conscientemente. Enquanto
+ * não estiverem, a opção de som não aparece — melhor do que aparecer e falhar.
+ *
+ * Mas sumir calado faz parecer defeito, então dizemos o que falta e como
+ * resolver. Uma vez só: isto é chamado a cada carga da página.
  */
 function disponivel() {
   if (process.platform !== 'win32') return false;
-  return fs.existsSync(CAPTURA) && fs.existsSync(JANELAS);
+  if (fs.existsSync(CAPTURA) && fs.existsSync(JANELAS)) return true;
+
+  if (!avisou) {
+    avisou = true;
+    console.warn(
+      `Som por aplicativo indisponível: faltam os binários em ${PASTA}.\n` +
+      'Eles são compilados pelo GitHub Actions a partir do fonte .cpp que está lá.\n' +
+      'Baixe o artefato "binarios-windows-x64" da execução do workflow e coloque\n' +
+      'captura.exe e janelas.exe nessa pasta. Compartilhar tela funciona sem eles.');
+  }
+  return false;
 }
 
 /**

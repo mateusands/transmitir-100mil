@@ -47,7 +47,7 @@ comando que interessa.
 | `desktop/som.cjs` | porta comum do som por aplicativo; despacha por plataforma |
 | `desktop/som-linux.cjs` | Linux: fonte virtual e ligações, pelas ferramentas do PipeWire |
 | `desktop/som-pcm.cjs` | Windows: blocos de PCM dos nossos binários (macOS ainda não tem som) |
-| `desktop/nativo/win/*.cpp` | fonte da captura do Windows; quem compila é a CI |
+| `desktop/nativo/win/*.cpp` | fonte da captura do Windows; quem compila é a CI, e o `.exe` **não** é versionado |
 | `desktop/ponte.cjs` | ponte estreita entre a página e o processo principal |
 | `tools/hospedar.mjs` | sobe servidor + túnel e derruba os dois no `Ctrl+C` |
 | `iniciar-*.sh/.command/.bat` | lançadores: perguntam hospedar, app, ou os dois |
