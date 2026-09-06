@@ -11,6 +11,10 @@ nenhum faz: levar o som de **um aplicativo escolhido**, sem levar a conversa do
 Discord nem as vozes da própria chamada. Veja
 [App de mesa](#app-de-mesa-levar-o-som-de-um-aplicativo).
 
+Três dependências ao todo — `express`, `socket.io` e `electron` —, e **nenhuma
+biblioteca de terceiro para áudio**: o som sai das ferramentas que já vêm com o
+sistema, ou de código nosso.
+
 ## Requisitos
 
 **Antes de abrir qualquer lançador, instale Node.js 22 ou superior e npm.**
@@ -371,8 +375,25 @@ npm run check     # sintaxe de todos os módulos, inclusive desktop/
 ```
 
 Não há empacotador nem transpilador: os arquivos de `public/` são servidos como
-estão. Editou, recarregou, viu. As bibliotecas nativas do app de mesa trazem
-binário pronto, então `npm install` também não compila nada.
+estão. Editou, recarregou, viu.
+
+### Dependências
+
+Três, e todas de fora do caminho do áudio:
+
+| | para quê |
+|---|---|
+| `express` | serve `public/` e o `/api/config` |
+| `socket.io` | repassa a sinalização WebRTC |
+| `electron` | o app de mesa (dependência de desenvolvimento) |
+
+**Nenhuma biblioteca de terceiro para capturar áudio.** No Linux falamos com o
+PipeWire pelas ferramentas que vêm com ele (`pw-dump`, `pw-loopback`,
+`pw-link`); no Windows, por binários compilados do fonte em
+`desktop/nativo/win/`, que é nosso.
+
+Os ícones também não são dependência: o Lucide é buscado na hora pelo gerador,
+conferido pela soma que o npm publica, e o resultado entra versionado.
 
 Para uma chamada de duas pessoas na mesma máquina, abra o endereço em duas abas
 (ou numa janela anônima). Vale lembrar que compartilhar tela exige contexto

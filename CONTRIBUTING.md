@@ -24,8 +24,10 @@ mesa, e o navegador não alcança:
 npm run app
 ```
 
-Requisitos: Node.js 22 ou mais novo. As bibliotecas nativas de áudio trazem
-binário pronto, então `npm install` não compila nada na sua máquina.
+Requisitos: Node.js 22 ou mais novo. O `npm install` traz três pacotes —
+`express`, `socket.io` e `electron` — e não compila nada: **não há biblioteca de
+terceiro para áudio**. No Linux o som sai das ferramentas do próprio PipeWire;
+no Windows, de binários compilados do nosso fonte em `desktop/nativo/win/`.
 
 ## Antes de abrir um PR
 
@@ -80,9 +82,12 @@ O guia completo está em [AGENTS.md](AGENTS.md). O resumo:
 Não por ser ruim, mas por ser outro projeto:
 
 - Framework de interface, empacotador ou transpilador para o que é servido.
-- Dependência nativa que **exija compilar** na máquina de quem instala. Com
-  binário pronto no pacote, tudo bem — é assim que o som por aplicativo
-  funciona. Driver de áudio, cabo virtual ou serviço no sistema, não.
+- **Binário de terceiro** para áudio. Já tivemos três e saíram todos: código
+  compilado por outra pessoa, que a gente não consegue conferir contra o fonte,
+  rodando com os privilégios de quem usa. O que entra é fonte nosso, compilado
+  pela CI, ou ferramenta que já vem com o sistema.
+- Dependência nativa que **exija compilar na máquina de quem instala**. Driver
+  de áudio, cabo virtual ou serviço no sistema, também não.
 - Captura do som do sistema inteiro. Ela leva o Discord e as vozes da própria
   chamada de volta para a transmissão; o modelo é levar só o aplicativo
   escolhido (invariante 7 do [AGENTS.md](AGENTS.md)).

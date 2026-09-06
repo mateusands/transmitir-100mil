@@ -20,12 +20,15 @@ npm start            # servidor local em http://localhost:3000
 npm run hospedar     # servidor + túnel do Cloudflare, encerrados juntos
 npm run app          # app de mesa (Electron): seletor próprio e som por aplicativo
 npm run check        # sintaxe de todos os módulos, inclusive desktop/
-npm run gerar-icones # regera public/js/icones.js a partir do lucide-static
+npm run gerar-icones # regera public/js/icones.js (busca o Lucide na hora)
 ```
 
 Node.js 22 ou mais novo. `public/` é servido como está, sem empacotador nem
-transpilador. O app de mesa depende de três bibliotecas nativas, mas as três
-**trazem binário pronto** — `npm install` não compila nada.
+transpilador.
+
+**Não há dependência de terceiro para áudio.** O `package.json` tem `express`,
+`socket.io` e `electron`, e nada mais. No Linux falamos com o PipeWire pelas
+ferramentas dele; no Windows, com binários compilados do nosso próprio fonte.
 
 `npm run check` precisa sair com `exit=0` antes de qualquer commit. Cuidado com
 `| tail` e `| grep`: eles reportam o status do último comando do cano, não o do
@@ -86,9 +89,9 @@ comando que interessa.
    O som liga junto com a tela, deduzido do que foi compartilhado — mas a
    exclusão vale igual, e um aplicativo marcado como "nunca levar" não é ligado
    nem pela dedução.
-   No Windows não existe "tudo menos": o `application-loopback` só sabe incluir
-   um processo. Lá é um aplicativo por vez, e o pedido de "tudo" é recusado com
-   mensagem em vez de virar captura sem filtro.
+   No Windows não existe "tudo menos": a API captura um processo por vez. Lá é
+   um aplicativo por vez, e o pedido de "tudo" é recusado com mensagem em vez
+   de virar captura sem filtro.
 
 ## Convenções
 
