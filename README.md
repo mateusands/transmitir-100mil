@@ -72,14 +72,6 @@ winget install OpenJS.NodeJS.LTS
 winget install --id Cloudflare.cloudflared
 ```
 
-Para o app de mesa, o Windows também precisa do redistribuível da Microsoft —
-os binários de captura de áudio dependem dele. A maioria das máquinas já tem,
-por causa de jogos e outros programas:
-
-```powershell
-winget install Microsoft.VCRedist.2015+.x64
-```
-
 Feche e reabra o terminal depois de instalar, para o `PATH` pegar os comandos.
 
 ## Hospedar
@@ -250,7 +242,7 @@ TRANSMISSOR_URL=https://algo.trycloudflare.com npm run app
 |---|---|---|
 | Linux | PipeWire, pelas ferramentas dele | `pw-dump`, `pw-loopback`, `pw-link` |
 | macOS | **ainda não** — veja abaixo | — |
-| Windows | WASAPI process loopback, via `application-loopback` | Windows 10 2004 (build 19041), **só x64**, e o VC++ Redistributable |
+| Windows | WASAPI process loopback, código nosso | Windows 10 2004 (build 19041), **só x64** |
 
 No **Linux** não há binário nenhum: falamos com o PipeWire pelas ferramentas
 que vêm com ele — `pw-dump` para ler o grafo, `pw-loopback` para criar a fonte
@@ -258,16 +250,15 @@ e `pw-link` para ligar os aplicativos nela. Os dois primeiros vêm do pacote
 `pipewire`; o `pw-loopback`, do `pipewire-audio`. Quem já tem som funcionando
 com PipeWire tem os três.
 
-No **Windows** não existe o modo "todo o som": a biblioteca disponível só sabe
-capturar **um** aplicativo por vez, e capturar o sistema sem filtro devolveria
-justamente o que não pode ir. Lá o pedido é recusado com mensagem, e o caminho
-é escolher o aplicativo.
+No **Windows** não existe o modo "todo o som": a API captura **um** processo por
+vez, e capturar o sistema sem filtro devolveria justamente o que não pode ir. Lá
+o pedido é recusado com mensagem, e o caminho é escolher o aplicativo.
 
-Ainda no Windows, não há biblioteca de áudio a instalar: os dois executáveis vêm
-no pacote e usam a API do próprio sistema. O que eles exigem é o
-**Visual C++ Redistributable 2015–2022 (x64)** — `MSVCP140.dll` e
-`VCRUNTIME140.dll`. Quase toda máquina já tem; se faltar, é
-`winget install Microsoft.VCRedist.2015+.x64`.
+Os dois executáveis são **nossos**, compilados do fonte em
+`desktop/nativo/win/` — uma versão enxuta do exemplo ApplicationLoopback da
+Microsoft (MIT), sem o Media Foundation e sem a WIL que ele arrasta. Quem
+compila é o GitHub Actions, num runner Windows; o runtime da Microsoft entra
+estaticamente, então não há redistribuível a instalar.
 
 São as APIs que os próprios sistemas criaram para isto. Os binários vêm
 prontos: `npm install` não compila nada, e nada é instalado fora da pasta do
@@ -275,10 +266,11 @@ projeto — sem driver de áudio virtual, sem serviço, sem cabo virtual.
 
 **Ressalvas honestas:**
 
-- O caminho do **Windows ainda não foi exercitado em máquina real**. Foi escrito
-  contra a API e o formato de PCM lidos no fonte, e validado de ponta a ponta com
-  áudio sintético. No Linux está testado com duas pessoas. Se falhar num Windows,
-  comece a olhar por aí.
+- O caminho do **Windows ainda não foi compilado nem exercitado**. O fonte está
+  escrito contra a API documentada e sobre o exemplo da Microsoft; a CI compila
+  no primeiro push, e testar precisa de uma máquina Windows. Até lá,
+  `disponivel` devolve false porque os binários não existem, e a opção de som
+  não aparece.
 - No **macOS** o som por aplicativo **ainda não existe** — compartilhar tela
   funciona normalmente, mas a opção de som nem aparece. O caminho é conhecido
   (Core Audio process taps, macOS 14.2+), e falta escrevê-lo e, principalmente,
@@ -418,7 +410,8 @@ public/js/icones.js     gerado — ícones do Lucide embutidos
 desktop/main.cjs        app de mesa: janela, seletor de tela, servidor embutido
 desktop/som.cjs         porta comum do som por aplicativo, nas três plataformas
 desktop/som-linux.cjs     Linux: fonte virtual e ligações, pelas ferramentas do PipeWire
-desktop/som-pcm.cjs       Windows: blocos de PCM da biblioteca nativa
+desktop/som-pcm.cjs       Windows: blocos de PCM dos nossos binários
+desktop/nativo/win/     fonte C++ da captura do Windows (compilado pela CI)
 desktop/seletor.html    seletor de tela próprio (onde o sistema não tem um)
 desktop/ponte.cjs       ponte estreita entre a página e o processo principal
 tools/hospedar.mjs      servidor + túnel, encerrados juntos

@@ -1,0 +1,53 @@
+# Compila os binários de captura de áudio do Windows.
+#
+# Eles existem porque não há como capturar o som de um aplicativo pelo
+# navegador, e porque preferimos código nosso a binário de terceiro. Como
+# ninguém do projeto necessariamente tem Windows com MSVC, quem compila é isto.
+#
+# O artefato fica anexado à execução; baixar e commitar em desktop/nativo/win/
+# é um passo manual e consciente — binário entra no repositório com alguém
+# olhando, não por automação.
+
+name: Binários do Windows
+
+on:
+  push:
+    paths:
+      - 'desktop/nativo/win/**'
+      - '.github/workflows/binarios-windows.yml'
+  pull_request:
+    paths:
+      - 'desktop/nativo/win/**'
+  workflow_dispatch:
+
+jobs:
+  compilar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # vswhere vem com o runner; assim não dependemos de action de terceiro
+      # nem de o caminho da edição do Visual Studio ser um em vez de outro
+      - name: Compilar com MSVC
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VSPATH=%%i
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          mkdir saida
+          rem /MT liga o runtime da Microsoft estaticamente: sem ele os .exe
+          rem exigiriam o VC++ Redistributable na maquina de quem usa, e a
+          rem falha seria um dialogo de DLL ausente, nao uma mensagem nossa
+          cl /nologo /EHsc /O2 /W4 /MT /std:c++17 /DUNICODE /D_UNICODE ^
+             desktop\nativo\win\captura.cpp /Fesaida\captura.exe /Fosaida\ ^
+             /link ole32.lib mmdevapi.lib || exit /b 1
+          cl /nologo /EHsc /O2 /W4 /MT /std:c++17 /DUNICODE /D_UNICODE ^
+             desktop\nativo\win\janelas.cpp /Fesaida\janelas.exe /Fosaida\ ^
+             /link user32.lib || exit /b 1
+          dir saida
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binarios-windows-x64
+          path: |
+            saida/captura.exe
+            saida/janelas.exe

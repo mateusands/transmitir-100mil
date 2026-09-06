@@ -1,40 +1,58 @@
-/* Som do aplicativo escolhido no Windows.
+/* Som do aplicativo escolhido no Windows, pelos nossos próprios binários.
  *
- * Aqui não existe fonte de áudio virtual como no Linux: a biblioteca nativa
- * entrega blocos de PCM cru, e quem os transforma em faixa é o worklet da
- * página (public/js/pcm-worklet.js).
+ * Aqui não existe fonte de áudio virtual como no Linux: a captura entrega
+ * blocos de PCM cru, e quem os transforma em faixa é o worklet da página
+ * (public/js/pcm-worklet.js).
  *
- * O formato NÃO é suposição — foi lido no fonte: LoopbackCapture.cpp fixa
- * WAVE_FORMAT_PCM, 2 canais, 48000 Hz, 16 bits. É a API que a própria
- * Microsoft criou para isto, o WASAPI process loopback.
+ * Os dois executáveis vivem em desktop/nativo/win/ e são compilados do fonte
+ * que está ao lado deles — veja o workflow em .github/workflows. Não há
+ * biblioteca de terceiro no caminho: o `captura.exe` é uma versão enxuta do
+ * exemplo ApplicationLoopback da Microsoft (MIT), sem o Media Foundation e sem
+ * a WIL, e o `janelas.exe` é um EnumWindows.
+ *
+ * O formato é fixo e conhecido, porque é o nosso código que o fixa:
+ * PCM 16 bits com sinal, 2 canais, 48000 Hz, intercalado.
  *
  * macOS ainda não tem som por aplicativo. O caminho existe — Core Audio
- * process taps, macOS 14.2+ — mas exige um binário Swift que precisamos
- * escrever e, principalmente, PODER TESTAR num Mac. Enquanto isso, `disponivel`
- * devolve false lá e a opção nem aparece, o que é melhor que oferecer e falhar.
+ * process taps, macOS 14.2+ — mas exige um binário que precisamos escrever e,
+ * principalmente, PODER TESTAR num Mac. Enquanto isso, `disponivel` devolve
+ * false lá e a opção nem aparece, o que é melhor que oferecer e falhar.
  */
 
 
+const { spawn, execFile } = require('node:child_process');
+const path = require('node:path');
+const fs = require('node:fs');
+
 const TAXA = 48000;
-const FORMATO = { win32: { taxa: TAXA, canais: 2 } };
+const CANAIS = 2;
+
+const PASTA = path.join(__dirname, 'nativo', 'win');
+const CAPTURA = path.join(PASTA, 'captura.exe');
+const JANELAS = path.join(PASTA, 'janelas.exe');
 
 let ativo = null;   // { parar() } enquanto há captura
 
+/**
+ * Só no Windows, e só se os binários estiverem no lugar.
+ *
+ * Eles não vêm do npm: são compilados pela CI a partir do fonte ao lado, e
+ * alguém os coloca aqui conscientemente. Enquanto não estiverem, a opção de som
+ * não aparece — melhor do que aparecer e falhar na hora de usar.
+ */
 function disponivel() {
-  const f = FORMATO[process.platform];
-  if (!f) return false;
-  try { require('application-loopback'); return true; }
-  catch (e) { console.error('captura de áudio não carregou:', e.message); return false; }
+  if (process.platform !== 'win32') return false;
+  return fs.existsSync(CAPTURA) && fs.existsSync(JANELAS);
 }
 
 /**
- * Entrega os bytes como ArrayBuffer próprio.
+ * Entrega os bytes como Uint8Array próprio.
  *
  * Duas armadilhas de uma vez. O Buffer do Node é uma janela sobre um bloco
- * compartilhado: passar `.buffer` mandaria junto o resto do bloco, com dados
- * de terceiros. E o PCM é de 16 bits — se um bloco terminar num byte solto,
- * cortar esse byte deslocaria TODAS as amostras seguintes em meio sample, o
- * que não soa como falha, soa como ruído. O resto fica para o próximo bloco.
+ * compartilhado: passar `.buffer` mandaria junto o resto do bloco, com dados de
+ * terceiros. E o PCM é de 16 bits — o cano pode cortar no meio de uma amostra,
+ * e descartar o byte solto deslocaria TODAS as seguintes em meio sample, o que
+ * não soa como falha, soa como ruído. O resto fica para o próximo bloco.
  */
 function fatiador(aoReceber) {
   let sobra = null;
@@ -49,70 +67,74 @@ function fatiador(aoReceber) {
   };
 }
 
-/* ================= Windows ================= */
-
-async function aplicativosWin() {
-  const lib = require('application-loopback');
-  const janelas = await lib.getActiveWindowProcessIds();
-  const vistos = new Map();
-  for (const j of janelas) {
-    // uma janela por aplicativo: um navegador com cinco janelas viraria cinco itens
-    if (!j.title || vistos.has(j.processId)) continue;
-    vistos.set(j.processId, { id: String(j.processId), nome: j.title });
-  }
-  return [...vistos.values()];
-}
-
-function ligarWin(processId, aoReceber) {
-  /* O application-loopback só sabe INCLUIR um processo, ou capturar o sistema
-     inteiro sem filtro nenhum. "Tudo menos" exigiria o modo exclude da API do
-     Windows, que ele não expõe — e capturar tudo sem filtro devolveria o
-     Discord e as vozes desta chamada, que é justamente o que não pode. */
-  if (processId === 'tudo') {
-    throw new Error('No Windows dá para levar o som de um aplicativo por vez, não o de todos.');
-  }
-  const lib = require('application-loopback');
-  const entregar = fatiador(aoReceber);
-  const id = String(processId);
-  lib.startAudioCapture(id, { onData: dados => entregar(dados) });
-  ativo = { parar: () => lib.stopAudioCapture(id) };
-  return FORMATO.win32;
+/**
+ * Janelas visíveis e o processo dono de cada uma.
+ *
+ * É a lista de aplicativos ABERTOS, não de aplicativos tocando: a captura é por
+ * PID e o Windows não diz quem tem som sem mais código nativo. Escolher um que
+ * está mudo devolve silêncio, não erro.
+ */
+function aplicativos() {
+  if (!disponivel()) return Promise.resolve([]);
+  return new Promise(resolve => {
+    execFile(JANELAS, { timeout: 5000, maxBuffer: 4 << 20 }, (erro, saida) => {
+      if (erro) return resolve([]);
+      const itens = [];
+      for (const linha of String(saida).split('\n')) {
+        const corte = linha.indexOf('\t');
+        if (corte < 1) continue;
+        const id = linha.slice(0, corte).trim();
+        const nome = linha.slice(corte + 1).trim();
+        if (id && nome) itens.push({ id, nome });
+      }
+      return resolve(itens);
+    });
+  });
 }
 
 /**
  * O que levar, deduzido do que está sendo compartilhado.
  *
- * No macOS a tela inteira leva tudo; para uma janela não temos como saber de
- * quem ela é sem codigo nativo, e "tudo" e um palpite honesto — som demais se
- * corrige em um clique, silencio ninguem entende.
- *
- * No Windows nao existe "tudo": so da para incluir um processo. Tentamos casar
- * o titulo da janela compartilhada com a lista de janelas abertas; sem casar,
- * nao sugerimos nada e a pessoa escolhe no menu.
+ * Não existe "tudo" aqui: a API captura um processo por vez. Casamos o título
+ * da janela compartilhada com a lista de janelas abertas; sem casar, não
+ * sugerimos nada e a pessoa escolhe no menu.
  */
 async function sugestao(superficie, nomeDaFonte) {
-  if (process.platform !== 'win32') return null;
-  if (superficie !== 'window' || !nomeDaFonte) return null;
-
-  const achado = (await aplicativosWin()).find(j => j.nome === nomeDaFonte);
-  return achado || null;
-}
-
-/* ================= porta comum ================= */
-
-function aplicativos() {
-  if (process.platform === 'win32') return aplicativosWin();
-  return Promise.resolve([]);
+  if (!disponivel() || superficie !== 'window' || !nomeDaFonte) return null;
+  return (await aplicativos()).find(j => j.nome === nomeDaFonte) || null;
 }
 
 /**
  * Começa a capturar e devolve o formato dos blocos, para o worklet montar a
  * faixa. Os blocos chegam em `aoReceber` como Uint8Array.
  */
-async function ligar(id, excluidos = [], aoReceber) {
+async function ligar(id, excluidos, aoReceber) {
   await desligar();
-  if (process.platform === 'win32') return ligarWin(id, aoReceber);
-  throw new Error('Esta plataforma não tem captura por aplicativo.');
+  if (!disponivel()) throw new Error('A captura de áudio do Windows não está instalada.');
+
+  /* Não há "tudo menos" no Windows: a API só sabe incluir um processo, e
+     capturar o sistema sem filtro devolveria o Discord e as vozes desta
+     chamada — justamente o que não pode ir. */
+  if (id === 'tudo') {
+    throw new Error('No Windows dá para levar o som de um aplicativo por vez, não o de todos.');
+  }
+
+  const entregar = fatiador(aoReceber);
+  const proc = spawn(CAPTURA, [String(id)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  proc.stdout.on('data', entregar);
+  proc.stderr.on('data', d => console.error('captura.exe:', String(d).trim()));
+
+  let morreu = null;
+  proc.on('exit', codigo => { if (codigo) morreu = codigo; ativo = null; });
+
+  /* O binário só descobre que o PID não serve depois de tentar ativar, e isso
+     chega como saída não-zero. Esperar um instante troca um erro dito na cara
+     por uma transmissão muda que ninguém entende. */
+  await new Promise(r => setTimeout(r, 400));
+  if (morreu !== null) throw new Error('Não consegui capturar o som desse aplicativo.');
+
+  ativo = { parar: () => proc.kill() };
+  return { taxa: TAXA, canais: CANAIS };
 }
 
 async function desligar() {

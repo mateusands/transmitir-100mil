@@ -43,7 +43,8 @@ comando que interessa.
 | `desktop/main.cjs` | app de mesa: janela, seletor de tela, servidor embutido |
 | `desktop/som.cjs` | porta comum do som por aplicativo; despacha por plataforma |
 | `desktop/som-linux.cjs` | Linux: fonte virtual e ligações, pelas ferramentas do PipeWire |
-| `desktop/som-pcm.cjs` | Windows: blocos de PCM da biblioteca nativa (macOS ainda não tem som) |
+| `desktop/som-pcm.cjs` | Windows: blocos de PCM dos nossos binários (macOS ainda não tem som) |
+| `desktop/nativo/win/*.cpp` | fonte da captura do Windows; quem compila é a CI |
 | `desktop/ponte.cjs` | ponte estreita entre a página e o processo principal |
 | `tools/hospedar.mjs` | sobe servidor + túnel e derruba os dois no `Ctrl+C` |
 | `iniciar-*.sh/.command/.bat` | lançadores: perguntam hospedar, app, ou os dois |
@@ -72,10 +73,11 @@ comando que interessa.
    `gerar-icones`. Dependência nativa é permitida **desde que traga binário
    pronto** — se um pacote exige compilar na máquina de quem instala, ele está
    fora. Nada de driver de áudio, cabo virtual ou serviço no sistema.
-   O áudio do Linux **não usa binário de terceiro nenhum**: falamos com o
-   PipeWire pelo `pw-dump`, `pw-loopback` e `pw-link`, que vêm com ele. Se um
-   dia entrar binário aqui, ele vem com a soma conferida e em versão exata,
-   sem `^` — pacote pequeno com executável dentro não sobe de versão sozinho.
+   Hoje **não há binário de terceiro nenhum** no projeto. No Linux falamos com
+   o PipeWire pelo `pw-dump`, `pw-loopback` e `pw-link`, que vêm com ele; no
+   Windows os executáveis saem do nosso fonte em `desktop/nativo/win/`,
+   compilados pela CI. Se um dia voltar a entrar binário de fora, ele vem com a
+   soma conferida e em versão exata, sem `^`.
 7. **O nosso próprio áudio nunca entra na captura.** Levar o som da máquina
    inteira é opção legítima e existe ("Levar todo o som"), mas o processo
    `"Audio Service"` do Chromium fica **sempre** de fora — senão as vozes desta
