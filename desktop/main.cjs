@@ -18,7 +18,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
 const { fork } = require('node:child_process');
-const somLinux = require('./som-linux.cjs');
+const som = require('./som.cjs');
 
 const RAIZ = path.join(__dirname, '..');
 const PORTA = Number(process.env.PORT) || 3000;
@@ -169,13 +169,20 @@ ipcMain.on('seletor:cancelar', () => responder(null));
 /* Não há "automático": no modelo include, quem escolhe o aplicativo é quem
    compartilha. Adivinhar levaria a errar para o lado caro — mandar som que
    não era para ir. */
-ipcMain.handle('som:disponivel', () => somLinux.disponivel());
-ipcMain.handle('som:aplicativos', () => somLinux.aplicativos());
-ipcMain.handle('som:ligar', async (_e, alvo) => {
-  try { return { ok: true, ...(await somLinux.ligar(alvo)) }; }
-  catch (e) { return { ok: false, erro: e.message }; }
+ipcMain.handle('som:disponivel', () => som.disponivel());
+ipcMain.handle('som:aplicativos', () => som.aplicativos());
+ipcMain.handle('som:ligar', async (evento, alvo) => {
+  const remetente = evento.sender;
+  try {
+    /* Onde a entrega é por PCM, os blocos sobem para a janela que pediu — e
+       só para ela. Checar isDestroyed a cada bloco porque a captura é do
+       sistema: ela não para sozinha quando a janela fecha. */
+    return { ok: true, ...(await som.ligar(alvo, bytes => {
+      if (!remetente.isDestroyed()) remetente.send('som:pcm', bytes);
+    })) };
+  } catch (e) { return { ok: false, erro: e.message }; }
 });
-ipcMain.handle('som:desligar', async () => { await somLinux.desligar(); return { ok: true }; });
+ipcMain.handle('som:desligar', async () => { await som.desligar(); return { ok: true }; });
 
 /* ================= janela principal ================= */
 
@@ -255,5 +262,5 @@ app.on('before-quit', async () => {
   try { servidor?.kill(); } catch {}
   // o módulo de áudio é do sistema, não do app: sair sem descarregar deixaria
   // uma fonte fantasma na configuração de quem usou
-  await somLinux.desligar();
+  await som.desligar();
 });

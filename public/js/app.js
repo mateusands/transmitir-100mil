@@ -118,13 +118,17 @@ async function iniciarTela() {
  * Recebe o rótulo de volta em vez de supô-lo: o nome do dispositivo é o que a
  * página usa para achá-lo, e quem sabe qual ficou registrado é o sistema.
  */
-async function levarSom(nome) {
+async function levarSom(id, nome) {
   fecharMenu();
-  const r = await ponteSom.ligar(nome);
+  const r = await ponteSom.ligar(id);
   if (!r.ok) return avisar('sala', 'Não consegui levar o som: ' + r.erro);
 
   try {
-    await rtc.ligarSomDaTela(r.fonte);
+    /* Duas entregas, um resultado. No Linux o app criou uma entrada de áudio e
+       a página só a captura; no macOS e no Windows chegam blocos de PCM, que o
+       worklet vira faixa. O outro lado da chamada não distingue as duas. */
+    if (r.tipo === 'pcm') await rtc.ligarSomDaTelaPcm(r, ponteSom.aoReceberPcm);
+    else await rtc.ligarSomDaTela(r.fonte);
     alvoDoSom = nome;
   } catch (e) {
     await ponteSom.desligar();
@@ -184,7 +188,7 @@ async function itensDeSom() {
   if (alvoDoSom) itens.push(itemBotao('volume-x', 'Parar o som', tirarSom));
   for (const app of apps) {
     if (alvoDoSom === app.nome) continue;
-    itens.push(itemBotao('volume-2', `Levar o som de ${app.nome}`, () => levarSom(app.nome)));
+    itens.push(itemBotao('volume-2', `Levar o som de ${app.nome}`, () => levarSom(app.id, app.nome)));
   }
 
   /* Sem nenhum aplicativo tocando, a lista vazia pareceria defeito. O

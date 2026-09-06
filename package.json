@@ -13,7 +13,7 @@
   "scripts": {
     "start": "node server/index.js",
     "hospedar": "node tools/hospedar.mjs",
-    "check": "node --check server/index.js && node --check tools/hospedar.mjs && node --check tools/gerar-icones.mjs && node --check tools/atualizar-venmic.mjs && node --check public/js/app.js && node --check public/js/rtc.js && node --check public/js/icones.js && node --check desktop/main.cjs && node --check desktop/ponte.cjs && node --check desktop/preload.cjs && node --check desktop/som-linux.cjs",
+    "check": "node --check server/index.js && node --check tools/hospedar.mjs && node --check tools/gerar-icones.mjs && node --check public/js/app.js && node --check public/js/rtc.js && node --check public/js/icones.js && node --check public/js/pcm-worklet.js && node --check desktop/main.cjs && node --check desktop/ponte.cjs && node --check desktop/preload.cjs && node --check desktop/som.cjs && node --check desktop/som-linux.cjs && node --check desktop/som-pcm.cjs && node --check tools/atualizar-venmic.mjs",
     "gerar-icones": "node tools/gerar-icones.mjs",
     "app": "electron .",
     "atualizar-venmic": "node tools/atualizar-venmic.mjs"
@@ -28,5 +28,9 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "optionalDependencies": {
+    "application-loopback": "^1.2.7",
+    "audiotee": "^0.0.7"
   }
 }

@@ -20,7 +20,9 @@ export const eu = { sid: null, nome: '', sala: '', tela: false, mic: false, somD
 
 let telaStream = null;      // vídeo da tela (+ áudio da aba/sistema, se houver)
 let micStream = null;       // áudio do microfone
-let somTelaStream = null;   // áudio do sistema capturado à parte (Linux, via app)
+let somTelaStream = null;   // áudio do aplicativo compartilhado, vindo do app de mesa
+let somContexto = null;     // AudioContext do caminho PCM (macOS e Windows)
+let somCancelar = null;     // encerra a assinatura dos blocos de PCM
 
 /* ================= ciclo de vida ================= */
 
@@ -221,11 +223,8 @@ export async function alternarTela() {
 }
 
 /**
- * Captura a fonte de áudio criada pelo app e a manda junto com a tela.
- *
- * As faixas entram em `telaStream`, não numa stream própria: assim chegam do
- * outro lado com o id da tela e caem no controle "Som da tela", separadas da
- * voz. Recebe o rótulo porque o id do dispositivo só existe depois que o
+ * Caminho do Linux: o app criou uma entrada de áudio de verdade, e a página só
+ * a captura. Recebe o rótulo porque o id do dispositivo só existe depois que o
  * navegador enumera.
  */
 export async function ligarSomDaTela(rotulo) {
@@ -235,23 +234,72 @@ export async function ligarSomDaTela(rotulo) {
   const deviceId = await acharEntrada(rotulo);
   if (!deviceId) throw new Error(`Não encontrei a fonte de áudio "${rotulo}".`);
 
-  somTelaStream = await navigator.mediaDevices.getUserMedia({
-    // som de sistema não é voz: cancelar eco ou "melhorar" o sinal só estraga
+  adotarSomDaTela(await navigator.mediaDevices.getUserMedia({
+    // som de aplicativo não é voz: cancelar eco ou "melhorar" o sinal só estraga
     audio: {
       deviceId: { exact: deviceId },
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
     },
-  });
+  }));
+}
 
-  for (const faixa of somTelaStream.getAudioTracks()) {
+/**
+ * O mesmo som, onde não existe dispositivo para capturar.
+ *
+ * No macOS e no Windows as bibliotecas nativas não criam entrada de áudio
+ * nenhuma: elas entregam blocos de PCM. O worklet transforma esses blocos numa
+ * faixa, e daí para a frente é indistinguível do caminho do Linux — inclusive
+ * para o outro lado da chamada.
+ *
+ * @param assinar recebe uma função que será chamada a cada bloco e devolve
+ *   como cancelar a assinatura.
+ */
+export async function ligarSomDaTelaPcm({ taxa, canais }, assinar) {
+  if (!telaStream) throw new Error('Compartilhe a tela antes de ligar o som.');
+  if (somTelaStream) return;
+
+  // o contexto nasce na taxa do PCM: assim ninguém reamostra no caminho
+  const ctx = new AudioContext({ sampleRate: taxa });
+  try {
+    await ctx.audioWorklet.addModule('/js/pcm-worklet.js');
+    const no = new AudioWorkletNode(ctx, 'fonte-de-pcm', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [canais],
+      processorOptions: { canais },
+    });
+    const destino = ctx.createMediaStreamDestination();
+    no.connect(destino);
+    await ctx.resume().catch(() => {});
+
+    somContexto = ctx;
+    // transfere o buffer em vez de copiar: são blocos a cada 200ms, sem parar
+    somCancelar = assinar(buffer => {
+      try { no.port.postMessage(buffer, [buffer]); } catch (e) { console.error(e); }
+    });
+    adotarSomDaTela(destino.stream);
+  } catch (e) {
+    ctx.close().catch(() => {});
+    somContexto = null;
+    throw e;
+  }
+}
+
+/**
+ * As faixas entram em `telaStream`, não numa stream própria: assim chegam do
+ * outro lado com o id da tela e caem no controle "Som da tela", separadas da
+ * voz. É o invariante 3 — juntar os áudios num stream só mataria isso.
+ */
+function adotarSomDaTela(stream) {
+  somTelaStream = stream;
+  for (const faixa of stream.getAudioTracks()) {
     telaStream.addTrack(faixa);
     for (const peer of peers.values()) {
       try { peer.pc.addTrack(faixa, telaStream); } catch (e) { console.error(e); }
     }
   }
-
   eu.somDaTela = true;
   aoMudar();
 }
@@ -264,6 +312,11 @@ export function desligarSomDaTela() {
     faixa.stop();
   }
   somTelaStream = null;
+
+  // a assinatura primeiro: sem isso chegariam blocos para um worklet já morto
+  if (somCancelar) { try { somCancelar(); } catch (e) { console.error(e); } somCancelar = null; }
+  if (somContexto) { somContexto.close().catch(() => {}); somContexto = null; }
+
   eu.somDaTela = false;
   aoMudar();
 }

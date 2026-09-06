@@ -13,5 +13,19 @@ contextBridge.exposeInMainWorld('transmissor', {
     aplicativos: () => ipcRenderer.invoke('som:aplicativos'),
     ligar: alvo => ipcRenderer.invoke('som:ligar', alvo),
     desligar: () => ipcRenderer.invoke('som:desligar'),
+
+    /* Blocos de PCM, onde não há dispositivo para capturar. Entrega
+       ArrayBuffer já desprendido: o que vem do IPC pode ser uma janela sobre
+       um bloco maior, e o worklet o consome inteiro. Devolve como cancelar. */
+    aoReceberPcm: aoBloco => {
+      const ouvinte = (_evento, bytes) => {
+        const b = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+          ? bytes.buffer
+          : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        aoBloco(b);
+      };
+      ipcRenderer.on('som:pcm', ouvinte);
+      return () => ipcRenderer.off('som:pcm', ouvinte);
+    },
   },
 });
