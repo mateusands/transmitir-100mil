@@ -9,7 +9,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('transmissor', {
   som: {
-    disponivel: () => ipcRenderer.invoke('som:disponivel'),
+    recursos: () => ipcRenderer.invoke('som:recursos'),
     aplicativos: () => ipcRenderer.invoke('som:aplicativos'),
     sugestao: superficie => ipcRenderer.invoke('som:sugestao', superficie),
     ligar: (alvo, excluidos) => ipcRenderer.invoke('som:ligar', alvo, excluidos),

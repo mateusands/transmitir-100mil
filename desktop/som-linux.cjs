@@ -63,8 +63,15 @@ async function grafo() {
   return { nos, portas, ligacoes };
 }
 
-function disponivel() {
-  return process.platform === 'linux';
+/**
+ * O que esta plataforma sabe fazer.
+ *
+ * `tudo` importa para a interface: sem isso o menu ofereceria "Levar todo o
+ * som" onde ele não existe, e a pessoa clicaria para receber um erro. Oferecer
+ * o que não pode funcionar é pior do que não oferecer.
+ */
+function recursos() {
+  return { disponivel: process.platform === 'linux', tudo: true };
 }
 
 /**
@@ -269,4 +276,4 @@ async function desligar() {
   if (laco) { try { laco.kill(); } catch (e) { console.error(e); } laco = null; }
 }
 
-module.exports = { disponivel, aplicativos, sugestao, ligar, desligar };
+module.exports = { recursos, aplicativos, sugestao, ligar, desligar };

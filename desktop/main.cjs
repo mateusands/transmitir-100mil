@@ -170,7 +170,7 @@ ipcMain.on('seletor:cancelar', () => responder(null));
 /* Não há "automático": no modelo include, quem escolhe o aplicativo é quem
    compartilha. Adivinhar levaria a errar para o lado caro — mandar som que
    não era para ir. */
-ipcMain.handle('som:disponivel', () => som.disponivel());
+ipcMain.handle('som:recursos', () => som.recursos());
 ipcMain.handle('som:aplicativos', () => som.aplicativos());
 ipcMain.handle('som:sugestao', (_e, superficie) => som.sugestao(superficie, ultimaFonte));
 ipcMain.handle('som:ligar', async (evento, alvo, excluidos) => {

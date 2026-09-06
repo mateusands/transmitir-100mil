@@ -193,8 +193,9 @@ $('btn-mic').addEventListener('click', async () => {
    não era para ir só se descobre depois que já foi. */
 let alvoDoSom = null;    // 'tudo', o nome de um aplicativo, ou null
 let somDisponivel = false;
+let somTudo = false;   // o Windows captura um processo por vez, e não "tudo"
 
-ponteSom?.disponivel().then(pode => { somDisponivel = pode; });
+ponteSom?.recursos().then(r => { somDisponivel = r.disponivel; somTudo = r.tudo; });
 
 /* Quem fica de fora quando o som é "tudo". O nosso próprio app já sai sempre,
    por PID, do lado de lá — esta lista é para o resto, e existe por um caso
@@ -226,7 +227,8 @@ async function itensDeSom() {
   const itens = [];
 
   if (alvoDoSom) itens.push(itemBotao('volume-x', 'Parar o som', tirarSom));
-  if (alvoDoSom !== 'tudo') {
+  // sem "tudo" onde a plataforma não sabe fazer: o clique só daria erro
+  if (somTudo && alvoDoSom !== 'tudo') {
     itens.push(itemBotao('speaker', 'Levar todo o som', () => levarSom('tudo', 'tudo')));
   }
   for (const app of apps) {

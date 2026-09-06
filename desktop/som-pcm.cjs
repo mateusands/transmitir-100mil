@@ -156,4 +156,10 @@ async function desligar() {
   try { await parar(); } catch (e) { console.error(e); }
 }
 
-module.exports = { disponivel, aplicativos, sugestao, ligar, desligar };
+/* `tudo: false` porque a API do Windows captura um processo por vez. Sem isto
+   o menu ofereceria "Levar todo o som" e o clique daria erro. */
+function recursos() {
+  return { disponivel: disponivel(), tudo: false };
+}
+
+module.exports = { recursos, aplicativos, sugestao, ligar, desligar };

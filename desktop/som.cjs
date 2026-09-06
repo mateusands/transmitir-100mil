@@ -18,8 +18,14 @@ const pcm = require('./som-pcm.cjs');
 const noLinux = process.platform === 'linux';
 const backend = noLinux ? linux : pcm;
 
-function disponivel() {
-  try { return backend.disponivel(); } catch (e) { console.error(e); return false; }
+/**
+ * O que dá para fazer aqui: `{ disponivel, tudo }`.
+ *
+ * `tudo` é falso no Windows, onde a API captura um processo por vez. A
+ * interface usa isso para não oferecer o que não existe.
+ */
+function recursos() {
+  try { return backend.recursos(); } catch (e) { console.error(e); return { disponivel: false, tudo: false }; }
 }
 
 /** Aplicativos que podem ter o som levado, como `{ id, nome }`. */
@@ -60,4 +66,4 @@ function desligar() {
   return Promise.resolve(backend.desligar()).catch(e => console.error(e));
 }
 
-module.exports = { disponivel, aplicativos, sugestao, ligar, desligar };
+module.exports = { recursos, aplicativos, sugestao, ligar, desligar };
