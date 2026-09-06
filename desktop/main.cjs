@@ -15,6 +15,7 @@
 
 const { app, BrowserWindow, Menu, desktopCapturer, ipcMain, session } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
 const net = require('node:net');
 const { fork } = require('node:child_process');
 const somLinux = require('./som-linux.cjs');
@@ -23,16 +24,50 @@ const RAIZ = path.join(__dirname, '..');
 const PORTA = Number(process.env.PORT) || 3000;
 const ENDERECO = process.env.TRANSMISSOR_URL || `http://localhost:${PORTA}`;
 
-/* No Linux o portal do ambiente JÁ É o seletor, e não dá pra concorrer com ele:
-   `desktopCapturer.getSources()` não lista janela nenhuma por conta própria —
-   a chamada é o que ABRE o diálogo do sistema, e o que volta é o que a pessoa
-   escolheu lá. Abrir uma janela nossa em cima disso dá o pior dos dois mundos:
-   a nossa nasce vazia (está esperando o portal), o portal aparece por trás, e
-   depois de escolher no portal a pessoa teria que escolher outra vez na nossa.
-   Aqui o portal decide sozinho — e ele faz mais do que faríamos: tem busca,
-   recorte de região e tela virtual.
-   (`useSystemPicker` não resolve: é opção de macOS, no Linux é ignorada.) */
-const SELETOR_DO_SISTEMA = process.platform === 'linux';
+/**
+ * Wayland de verdade, e não só o que as variáveis dizem.
+ *
+ * Flatpak e Snap apagam XDG_SESSION_TYPE, então confiar só nela dá falso
+ * negativo justamente onde errar é caro. Conferir o socket no disco resolve.
+ */
+function sessaoWayland() {
+  if (process.env.XDG_SESSION_TYPE?.trim() === 'wayland') return true;
+  const display = process.env.WAYLAND_DISPLAY?.trim();
+  if (!display) return false;
+  try {
+    const dir = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}`;
+    return fs.statSync(path.isAbsolute(display) ? display : path.join(dir, display)).isSocket();
+  } catch { return false; }
+}
+
+/**
+ * Quem mostra o seletor: o portal do ambiente, ou a nossa janela.
+ *
+ * No Wayland o portal JÁ É o seletor e não dá pra concorrer com ele:
+ * `desktopCapturer.getSources()` não lista nada por conta própria — a chamada é
+ * o que ABRE o diálogo do sistema, e o que volta já é a escolha da pessoa.
+ * Nossa janela por cima disso nasceria vazia esperando o portal, que apareceria
+ * atrás, e a pessoa escolheria duas vezes. O portal ainda faz mais do que
+ * faríamos: busca, recorte de região e tela virtual.
+ *
+ * No X11 é o oposto, e o contrário do que este código assumia: `getSources()`
+ * enumera EM SILÊNCIO, sem diálogo nenhum. Tratar X11 como portal fazia a
+ * gente pegar a primeira fonte da lista e compartilhar sem perguntar — e o
+ * seletor daqui nunca aparecia em Linux algum.
+ *
+ * Na dúvida, portal. O pior caso dele é o diálogo aparecer quando a pessoa
+ * pediu; o pior caso do outro lado é transmitir uma tela que ninguém escolheu.
+ *
+ * (`useSystemPicker` não resolve: é opção de macOS, no Linux é ignorada.)
+ */
+function seletorDoSistema() {
+  if (process.platform !== 'linux') return false;
+  if (sessaoWayland()) return true;
+  if (process.env.XDG_SESSION_TYPE?.trim() === 'x11') return false;
+  return true;
+}
+
+const SELETOR_DO_SISTEMA = seletorDoSistema();
 
 let janela = null;
 let servidor = null;
