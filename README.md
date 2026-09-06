@@ -260,9 +260,9 @@ o pedido é recusado com mensagem, e o caminho é escolher o aplicativo.
 
 Os dois executáveis são **nossos**, compilados do fonte em
 `desktop/nativo/win/` — uma versão enxuta do exemplo ApplicationLoopback da
-Microsoft (MIT), sem o Media Foundation e sem a WIL que ele arrasta. Quem
-compila é o GitHub Actions, num runner Windows; o runtime da Microsoft entra
-estaticamente, então não há redistribuível a instalar.
+Microsoft (MIT), sem o Media Foundation e sem a WIL que ele arrasta. Eles usam
+só o Universal CRT, que vem com o Windows 10 — não há redistribuível a
+instalar.
 
 Os executáveis vêm no `git clone`, então **não há nada a compilar para usar**.
 Para regenerá-los, de qualquer Linux ou macOS e sem instalar nada no sistema:
@@ -272,9 +272,8 @@ npm run compilar-windows
 ```
 
 Ele baixa a toolchain llvm-mingw para dentro de `.bin/`, confere a soma antes de
-extrair e compila. A CI faz o mesmo com o MSVC, o compilador da própria
-Microsoft — se os dois concordam, é sinal melhor do que só um. Detalhes no
-[LEIA-ME de lá](desktop/nativo/win/LEIA-ME.md).
+extrair e compila. Nada é instalado no sistema, e apagar `.bin/` apaga tudo.
+Detalhes no [LEIA-ME de lá](desktop/nativo/win/LEIA-ME.md).
 
 São as APIs que os próprios sistemas criaram para isto. Os binários vêm
 prontos: `npm install` não compila nada, e nada é instalado fora da pasta do
@@ -282,10 +281,9 @@ projeto — sem driver de áudio virtual, sem serviço, sem cabo virtual.
 
 **Ressalvas honestas:**
 
-- O caminho do **Windows compila, mas ninguém o rodou**. Os binários são
-  gerados por dois compiladores diferentes (llvm-mingw aqui, MSVC na CI) e
-  nenhum dos dois reclama — mas compilar não é testar. Se falhar num Windows,
-  é aí que se olha primeiro.
+- O caminho do **Windows compila, mas ninguém o rodou**. Compilar não é testar:
+  a API pode falhar em execução por motivo que compilador nenhum enxerga. Se
+  falhar num Windows, é aí que se olha primeiro.
 - No **macOS** o som por aplicativo **ainda não existe** — compartilhar tela
   funciona normalmente, mas a opção de som nem aparece. O caminho é conhecido
   (Core Audio process taps, macOS 14.2+), e falta escrevê-lo e, principalmente,

@@ -4,10 +4,9 @@
  * com o Node — nada é instalado no sistema, e apagar a pasta apaga tudo. É o
  * llvm-mingw, que traz clang, headers e bibliotecas do Windows num tarball só.
  *
- * Por que compilar aqui e não só na CI: poder rodar `node
- * tools/compilar-windows.mjs` e ver o erro na hora vale mais do que esperar um
- * push. A CI continua compilando com o MSVC de verdade, que é o compilador que
- * a Microsoft usa — se os dois concordam, é sinal melhor ainda.
+ * Compilar aqui é o que permite ver o erro na hora, sem depender de ter um
+ * Windows por perto. Já pagou: o `min` do windows.h é macro só no MSVC, e o
+ * mingw apontou isso antes de virar problema de outra pessoa.
  *
  *   node tools/compilar-windows.mjs
  */

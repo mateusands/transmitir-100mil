@@ -4,11 +4,11 @@
  * blocos de PCM cru, e quem os transforma em faixa é o worklet da página
  * (public/js/pcm-worklet.js).
  *
- * Os dois executáveis vivem em desktop/nativo/win/ e são compilados do fonte
- * que está ao lado deles — veja o workflow em .github/workflows. Não há
- * biblioteca de terceiro no caminho: o `captura.exe` é uma versão enxuta do
- * exemplo ApplicationLoopback da Microsoft (MIT), sem o Media Foundation e sem
- * a WIL, e o `janelas.exe` é um EnumWindows.
+ * Os dois executáveis vivem em desktop/nativo/win/, versionados, e saem do
+ * fonte que está ao lado deles — `npm run compilar-windows` regenera os dois.
+ * Não há biblioteca de terceiro no caminho: o `captura.exe` é uma versão enxuta
+ * do exemplo ApplicationLoopback da Microsoft (MIT), sem o Media Foundation e
+ * sem a WIL, e o `janelas.exe` é um EnumWindows.
  *
  * O formato é fixo e conhecido, porque é o nosso código que o fixa:
  * PCM 16 bits com sinal, 2 canais, 48000 Hz, intercalado.
@@ -38,12 +38,10 @@ let avisou = false;
 /**
  * Só no Windows, e só se os binários estiverem no lugar.
  *
- * Eles não vêm do npm nem são compilados no `npm install`: saem do fonte ao
- * lado, compilados pela CI, e alguém os coloca aqui conscientemente. Enquanto
- * não estiverem, a opção de som não aparece — melhor do que aparecer e falhar.
- *
- * Mas sumir calado faz parecer defeito, então dizemos o que falta e como
- * resolver. Uma vez só: isto é chamado a cada carga da página.
+ * Eles vêm versionados, então normalmente estão. Se alguém os apagar, ou se
+ * este repositório for consumido sem eles, a opção de som some — e sumir calado
+ * faz parecer defeito. Então dizemos o que falta e como resolver, uma vez só:
+ * isto é chamado a cada carga da página.
  */
 function disponivel() {
   if (process.platform !== 'win32') return false;
@@ -53,9 +51,8 @@ function disponivel() {
     avisou = true;
     console.warn(
       `Som por aplicativo indisponível: faltam os binários em ${PASTA}.\n` +
-      'Eles são compilados pelo GitHub Actions a partir do fonte .cpp que está lá.\n' +
-      'Baixe o artefato "binarios-windows-x64" da execução do workflow e coloque\n' +
-      'captura.exe e janelas.exe nessa pasta. Compartilhar tela funciona sem eles.');
+      'Regenere com `npm run compilar-windows`, de qualquer Linux ou macOS — o\n' +
+      'fonte deles está nessa mesma pasta. Compartilhar tela funciona sem eles.');
   }
   return false;
 }

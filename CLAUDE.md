@@ -52,8 +52,8 @@ Sem as skills instaladas, as regras que importam já estão destiladas no
 - Não introduza framework, empacotador nem dependência de navegador: veja os
   invariantes 5 e 6 do `AGENTS.md`.
 - **Não introduza binário de terceiro.** O projeto já teve três para áudio e
-  saíram todos: o que entra é fonte nosso, compilado pela CI, ou ferramenta que
-  já vem com o sistema. Hoje o `package.json` tem `express`, `socket.io` e
+  saíram todos: o que entra é fonte nosso, que qualquer um recompila com um
+  comando, ou ferramenta que já vem com o sistema. Hoje o `package.json` tem `express`, `socket.io` e
   `electron`, e mais nada.
 - Comentário aqui explica **por que**, e em português. Vários dos que existem
   marcam uma armadilha real — antes de apagar um, entenda o que ele protege.

@@ -16,11 +16,7 @@ Ele baixa a toolchain **llvm-mingw** para dentro de `.bin/` (como o `pasta.sh`
 faz com o Node), confere a soma sha256 antes de extrair, e compila os dois.
 Apagar `.bin/` apaga tudo.
 
-A CI faz o mesmo com o **MSVC**, que é o compilador da própria Microsoft — se
-os dois concordam, é sinal melhor do que só um. O artefato
-`binarios-windows-x64` fica anexado a cada execução do workflow.
-
-Com o Visual Studio à mão, num *Developer Command Prompt*:
+Com o Visual Studio à mão, num *Developer Command Prompt*, dá no mesmo:
 
 ```bat
 cl /nologo /EHsc /O2 /W4 /MT /std:c++17 /DUNICODE /D_UNICODE ^
@@ -43,10 +39,12 @@ Redistributable**, que as bibliotecas de terceiro que usávamos antes exigiam.
 
 ## O que ainda não foi feito
 
-**Ninguém rodou isto num Windows.** Compila com dois compiladores diferentes, e
-só. A API de captura por processo exige **Windows 10 build 20348**; em sistema
-anterior a ativação falha, o `captura.exe` sai com código diferente de zero e o
-app avisa em vez de transmitir mudo.
+**Ninguém rodou isto num Windows.** Compila sem aviso, e só isso — a API pode
+falhar em execução por motivo que compilador nenhum enxerga.
+
+A captura por processo exige **Windows 10 build 20348**. Em sistema anterior a
+ativação falha, o `captura.exe` sai com código diferente de zero, e o app avisa
+em vez de transmitir mudo.
 
 ## O que cada um faz
 
@@ -54,6 +52,7 @@ app avisa em vez de transmitir mudo.
 |---|---|
 | `captura.cpp` | recebe um PID e despeja no stdout PCM 16 bits, 2 canais, 48000 Hz |
 | `janelas.cpp` | lista janelas visíveis como `pid<TAB>título`, em UTF-8 |
+| `sdk-compat.h` | declara a API de process loopback onde o SDK não a traz — o mingw, por exemplo |
 
 O `captura.cpp` é uma versão enxuta do exemplo `ApplicationLoopback` da
 Microsoft, que é MIT — o aviso de copyright está no cabeçalho dele, como a

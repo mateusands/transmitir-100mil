@@ -79,9 +79,10 @@ comando que interessa.
    fora. Nada de driver de áudio, cabo virtual ou serviço no sistema.
    Hoje **não há binário de terceiro nenhum** no projeto. No Linux falamos com
    o PipeWire pelo `pw-dump`, `pw-loopback` e `pw-link`, que vêm com ele; no
-   Windows os executáveis saem do nosso fonte em `desktop/nativo/win/`,
-   compilados pela CI. Se um dia voltar a entrar binário de fora, ele vem com a
-   soma conferida e em versão exata, sem `^`.
+   Windows os executáveis saem do nosso fonte em `desktop/nativo/win/`, e
+   `npm run compilar-windows` os regenera de qualquer Linux. Se um dia voltar a
+   entrar binário de fora, ele vem com a soma conferida e em versão exata,
+   sem `^`.
 7. **O nosso próprio áudio nunca entra na captura.** Levar o som da máquina
    inteira é opção legítima e existe ("Levar todo o som"), mas o processo
    `"Audio Service"` do Chromium fica **sempre** de fora — senão as vozes desta

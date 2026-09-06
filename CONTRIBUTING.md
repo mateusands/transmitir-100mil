@@ -84,8 +84,8 @@ Não por ser ruim, mas por ser outro projeto:
 - Framework de interface, empacotador ou transpilador para o que é servido.
 - **Binário de terceiro** para áudio. Já tivemos três e saíram todos: código
   compilado por outra pessoa, que a gente não consegue conferir contra o fonte,
-  rodando com os privilégios de quem usa. O que entra é fonte nosso, compilado
-  pela CI, ou ferramenta que já vem com o sistema.
+  rodando com os privilégios de quem usa. O que entra é fonte nosso, que
+  qualquer um recompila com um comando, ou ferramenta que já vem com o sistema.
 - Dependência nativa que **exija compilar na máquina de quem instala**. Driver
   de áudio, cabo virtual ou serviço no sistema, também não.
 - Captura do som do sistema inteiro. Ela leva o Discord e as vozes da própria
