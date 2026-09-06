@@ -18,11 +18,15 @@ Se uma mudança sua fizer o servidor tocar em áudio ou vídeo, ela está errada
 ```bash
 npm start            # servidor local em http://localhost:3000
 npm run hospedar     # servidor + túnel do Cloudflare, encerrados juntos
-npm run check        # sintaxe de todos os módulos
+npm run app          # app de mesa (Electron): seletor próprio e som por aplicativo
+npm run check        # sintaxe de todos os módulos, inclusive desktop/
 npm run gerar-icones # regera public/js/icones.js a partir do lucide-static
+npm run atualizar-venmic # rebaixa e enxuga o addon em desktop/nativo/
 ```
 
-Node.js 22 ou mais novo. Sem etapa de build: `public/` é servido como está.
+Node.js 22 ou mais novo. `public/` é servido como está, sem empacotador nem
+transpilador. O app de mesa depende de três bibliotecas nativas, mas as três
+**trazem binário pronto** — `npm install` não compila nada.
 
 `npm run check` precisa sair com `exit=0` antes de qualquer commit. Cuidado com
 `| tail` e `| grep`: eles reportam o status do último comando do cano, não o do
@@ -36,7 +40,15 @@ comando que interessa.
 | `public/js/rtc.js` | malha WebRTC: negociação, faixas, o que é voz e o que é som da tela |
 | `public/js/app.js` | interface: palco, fila de pessoas, foco, menu de volume |
 | `public/js/icones.js` | **gerado** — não edite à mão |
+| `public/js/pcm-worklet.js` | PCM cru do app de mesa vira faixa de áudio (macOS/Windows) |
+| `desktop/main.cjs` | app de mesa: janela, seletor de tela, servidor embutido |
+| `desktop/som.cjs` | porta comum do som por aplicativo; despacha por plataforma |
+| `desktop/som-linux.cjs` | Linux: fonte virtual no PipeWire, via venmic |
+| `desktop/nativo/*.node` | **versionado** — addon do venmic, enxuto; regere com `atualizar-venmic` |
+| `desktop/som-pcm.cjs` | macOS e Windows: blocos de PCM das bibliotecas nativas |
+| `desktop/ponte.cjs` | ponte estreita entre a página e o processo principal |
 | `tools/hospedar.mjs` | sobe servidor + túnel e derruba os dois no `Ctrl+C` |
+| `iniciar-*.sh/.command/.bat` | lançadores: perguntam hospedar, app, ou os dois |
 
 ## Invariantes — quebrar isso quebra o produto
 
@@ -57,7 +69,20 @@ comando que interessa.
    única coisa que a rede de quem assiste alcança. Dependência nova de
    navegador entra convertida pro repositório (é o que `tools/gerar-icones.mjs`
    faz com os ícones do Lucide).
-6. **Sem etapa de build.** Os arquivos de `public/` são servidos como estão.
+6. **Sem etapa de build no que é servido.** Os arquivos de `public/` vão como
+   estão: sem empacotador, sem transpilador, sem passo de geração além do
+   `gerar-icones`. Dependência nativa é permitida **desde que traga binário
+   pronto** — se um pacote exige compilar na máquina de quem instala, ele está
+   fora. Nada de driver de áudio, cabo virtual ou serviço no sistema.
+   O addon do venmic é **versionado** em `desktop/nativo/` em vez de vir do
+   npm: o pacote declara o `cmake-js` como dependência de runtime e ele
+   arrastava 71 pacotes que nunca executam. Passado o `strip`, o binário cai de
+   25 MB para 1,8 MB — quase tudo era `debug_info`.
+7. **O som é de um aplicativo escolhido, nunca do sistema inteiro.** Capturar a
+   saída padrão parece mais simples e é armadilha: leva o Discord e as vozes
+   *desta própria chamada* de volta para dentro da transmissão, com atraso.
+   Modelo `include` — o que não foi escolhido não entra. Se você se pegar
+   procurando "capturar tudo e filtrar depois", parou no caminho errado.
 
 ## Convenções
 
@@ -95,6 +120,10 @@ a ferramenta que já usa. O que **precisa** ser verificado numa mudança:
 | negociação WebRTC | uma segunda pessoa recebe imagem e som — e as duas continuam se vendo depois de parar e voltar a compartilhar |
 | qualquer coisa visual | os cinco estados de cada controle, e o contraste de texto acima de 4.5:1 |
 | rotas do servidor | `/api/ping`, um arquivo de `public/` e uma rota inexistente (que devolve a página) |
+| som por aplicativo | escolheu um app, **só ele** vai; o app segue audível para quem compartilha; parar a tela para o som junto |
+| som por aplicativo | pausar e voltar a tocar no app escolhido — o som volta sozinho, sem reescolher |
+| captura de tela no Linux | no Wayland quem pergunta é o portal; no X11 tem que aparecer o **nosso** seletor, e não compartilhar direto |
+| lançadores | as três opções despacham certo, e por pipe (sem terminal) não travam |
 
 Duas coisas que valem por qualquer automação:
 
@@ -132,3 +161,69 @@ enxergam na fila um do outro.
   mas revalida).
 - **`getDisplayMedia` só existe em contexto seguro.** Pelo túnel funciona; por
   `http://<ip-da-lan>:3000`, não.
+
+### App de mesa e áudio
+
+- **`desktopCapturer.getSources()` faz coisas opostas conforme a sessão.** No
+  Wayland a chamada **abre** o portal e o que volta já é a escolha da pessoa —
+  uma fonte só. No X11 ela **enumera em silêncio**, sem diálogo nenhum. Pegar
+  `sources[0]` sem distinguir os dois faz o app compartilhar a primeira tela da
+  lista sem perguntar nada. E não confie só em `XDG_SESSION_TYPE`: Flatpak e
+  Snap apagam essa variável — confira o socket do Wayland no disco.
+- **Quem toca o áudio no Electron não é `process.pid`.** É um processo separado,
+  o `"Audio Service"`, achável em `app.getAppMetrics()`. Excluir o processo
+  principal da captura não exclui absolutamente nada.
+- **Leia o rótulo que o sistema registrou; não suponha o que você pediu.** A
+  página acha o dispositivo por rótulo. Já aconteceu de a fonte subir com o nome
+  certo e a descrição truncada: o módulo dizia sucesso e o erro só aparecia do
+  outro lado, na página, como "não encontrei a fonte". O venmic, por exemplo,
+  batiza o nó de `vencord-screen-share` — isso é detalhe dele, não contrato
+  nosso.
+- **PCM de 16 bits não perdoa byte ímpar.** Se um bloco terminar no meio de uma
+  amostra e você descartar o byte solto, **todas** as amostras seguintes andam
+  meio sample. Não soa como defeito, soa como ruído. Guarde o resto para o
+  bloco seguinte.
+- **Faixa `live` não prova som.** Uma faixa de áudio existe e fica viva mesmo
+  carregando silêncio absoluto. Para dizer que o som chegou, meça — um
+  `AnalyserNode` do lado de quem recebe resolve, e é a diferença entre "a faixa
+  chegou" e "dá pra ouvir".
+- **O venmic religa sozinho, e isso é medido.** Se o aplicativo escolhido parar
+  e voltar a tocar — inclusive como processo novo —, o som volta sem ninguém
+  reescolher nada: 24,2 dB tocando, 91 dB parado, 24,2 dB de novo ao voltar.
+  Aplicativo pausado também continua na lista (o nó fica `Corked`, não some).
+  Só some da lista quem **fecha** o fluxo de áudio, e aí não há o que listar.
+  Não "conserte" isso achando que está quebrado.
+
+#### Limitação conhecida: só a saída padrão
+
+O `link()` do venmic tem três opções que **defaultam para `true`** e que nós não
+passamos:
+
+```cpp
+bool ignore_devices{true};        // Only link against non-device nodes
+bool only_speakers{true};         // Ignore nodes that don't play to speakers
+bool only_default_speakers{true}; // Ignore nodes that don't play to the default speaker
+```
+
+Na prática: capturamos só o que estiver tocando na **saída de áudio padrão**.
+Quem mandar o jogo para um fone que não é o padrão — comum com headset USB —
+vê o aplicativo no menu e o som não vai. É falha silenciosa, o pior tipo.
+
+Fica assim de propósito. Medir isso direito exige uma segunda saída de hardware:
+com um sink nulo o venmic recusa de qualquer jeito, e não dá para distinguir
+"não é a saída padrão" de "sink nulo não conta como alto-falante". Mudar as
+opções sem esse teste trocaria uma limitação conhecida por um comportamento
+desconhecido. Se for mexer, meça antes — e o lugar é `ligar()` em
+`desktop/som-linux.cjs`.
+
+### Ao trabalhar neste repositório
+
+- **`pkill -f <padrão>` casa com o próprio shell que o executou**, porque o
+  padrão aparece na linha de comando dele. Mata a sua sessão e a mensagem de
+  erro não diz isso. Use `pkill -x <nome>`, ou filtre por PID.
+- **Teste de áudio toca no fone de quem está na máquina.** Se for gerar tom para
+  medir, mande para um sink nulo — ou avise antes, e mate o processo ao fim de
+  cada medição em vez de deixá-lo tocando entre um comando e outro.
+- **Lançador que pergunta precisa aguentar não ter ninguém.** Ele se re-executa
+  dentro de um emulador de terminal e pode ser chamado por pipe; sem um
+  `[[ -t 0 ]]` na frente do `read`, ele pendura para sempre.

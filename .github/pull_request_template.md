@@ -24,6 +24,7 @@ Apague as seções que não se aplicam. Um PR curto pode caber em três linhas.
 | `npm run check` | |
 | Subiu, abriu e usou (`npm start`, console aberto) | |
 | Chamada com duas pessoas — em máquinas diferentes, se possível | |
+| Mexeu no app de mesa? (`npm run app`, som e seletor de tela) | |
 | Aparência: olhou a tela nos tamanhos que a mudança afeta | |
 
 <!-- Cole o resultado, não o comando. "check exit=0", "chamada de 3 no Chrome:
@@ -53,5 +54,7 @@ passou é lido como cobertura total; o limite escrito vale mais que o escondido.
        ou diga que não testou.
      · Aparência não tem verificação automática. Contraste, hierarquia e
        espaçamento continuam olho humano; anexe capturas quando ajudarem.
+     · Faixa de áudio `live` não prova que há som — ela fica viva carregando
+       silêncio. Se mexeu em áudio, meça do lado de quem recebe.
 
      A lista completa está em AGENTS.md, na seção Validar. -->

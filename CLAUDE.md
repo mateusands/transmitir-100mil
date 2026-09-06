@@ -9,6 +9,7 @@ muda quando quem está no teclado é o Claude Code.
 ```bash
 npm run check     # exit=0
 npm start         # e então ABRA http://localhost:3000
+npm run app       # app de mesa — o som por aplicativo só existe aqui
 ```
 
 Checagem estática não é prova de que funciona: ela lê o código, não o produto
