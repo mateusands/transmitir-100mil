@@ -29,16 +29,18 @@ async function aplicativos() {
 /**
  * Liga o som de um aplicativo.
  *
- * @param id vindo de aplicativos() — nome do aplicativo no Linux, PID nas outras
+ * @param id `'tudo'`, ou vindo de aplicativos() — nome do aplicativo no Linux,
+ *   PID nas outras
+ * @param excluidos o que não deve entrar quando o id é `'tudo'`
  * @param aoReceberPcm chamado a cada bloco, só onde a entrega é por PCM
  * @returns `{ tipo: 'dispositivo', fonte }` ou `{ tipo: 'pcm', taxa, canais }`
  */
-async function ligar(id, aoReceberPcm) {
+async function ligar(id, excluidos, aoReceberPcm) {
   if (noLinux) {
-    const { fonte } = await linux.ligar(id);
+    const { fonte } = await linux.ligar(id, excluidos);
     return { tipo: 'dispositivo', fonte };
   }
-  return { tipo: 'pcm', ...(await pcm.ligar(id, aoReceberPcm)) };
+  return { tipo: 'pcm', ...(await pcm.ligar(id, excluidos, aoReceberPcm)) };
 }
 
 function desligar() {

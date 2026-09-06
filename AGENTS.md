@@ -78,11 +78,15 @@ comando que interessa.
    npm: o pacote declara o `cmake-js` como dependência de runtime e ele
    arrastava 71 pacotes que nunca executam. Passado o `strip`, o binário cai de
    25 MB para 1,8 MB — quase tudo era `debug_info`.
-7. **O som é de um aplicativo escolhido, nunca do sistema inteiro.** Capturar a
-   saída padrão parece mais simples e é armadilha: leva o Discord e as vozes
-   *desta própria chamada* de volta para dentro da transmissão, com atraso.
-   Modelo `include` — o que não foi escolhido não entra. Se você se pegar
-   procurando "capturar tudo e filtrar depois", parou no caminho errado.
+7. **O nosso próprio áudio nunca entra na captura.** Levar o som da máquina
+   inteira é opção legítima e existe ("Levar todo o som"), mas o processo
+   `"Audio Service"` do Chromium fica **sempre** de fora — senão as vozes desta
+   chamada voltariam para dentro dela, com atraso. Quem conversa por outro
+   programa exclui esse também, pelo menu, e a escolha é lembrada.
+   Nada liga sozinho: o som só vai depois de escolhido.
+   No Windows não existe "tudo menos": o `application-loopback` só sabe incluir
+   um processo. Lá é um aplicativo por vez, e o pedido de "tudo" é recusado com
+   mensagem em vez de virar captura sem filtro.
 
 ## Convenções
 
@@ -121,6 +125,8 @@ a ferramenta que já usa. O que **precisa** ser verificado numa mudança:
 | qualquer coisa visual | os cinco estados de cada controle, e o contraste de texto acima de 4.5:1 |
 | rotas do servidor | `/api/ping`, um arquivo de `public/` e uma rota inexistente (que devolve a página) |
 | som por aplicativo | escolheu um app, **só ele** vai; o app segue audível para quem compartilha; parar a tela para o som junto |
+| som "todo o som" | o excluído no menu não entra (meça: RMS zero), e o excluído é lembrado entre sessões |
+| trocar a regra do som | mudar de app, ou mexer na exclusão, **não** derruba a faixa de quem recebe |
 | som por aplicativo | pausar e voltar a tocar no app escolhido — o som volta sozinho, sem reescolher |
 | captura de tela no Linux | no Wayland quem pergunta é o portal; no X11 tem que aparecer o **nosso** seletor, e não compartilhar direto |
 | lançadores | as três opções despacham certo, e por pipe (sem terminal) não travam |

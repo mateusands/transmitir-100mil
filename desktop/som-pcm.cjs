@@ -16,6 +16,7 @@
  */
 
 
+const { app } = require('electron');
 const { execFile } = require('node:child_process');
 
 const TAXA = 48000;
@@ -81,10 +82,28 @@ function aplicativosMac() {
   });
 }
 
-async function ligarMac(pid, aoReceber) {
+/** Os PIDs que tocam o nosso próprio áudio — nunca podem entrar na captura. */
+function nossosPids() {
+  try { return app.getAppMetrics().map(p => p.pid).filter(Boolean); } catch { return []; }
+}
+
+async function ligarMac(alvo, excluidos, aoReceber) {
   const { AudioTee } = require('audiotee');
+
+  /* 'tudo' vira exclusão por PID: o audiotee aceita vários. Traduzimos os
+     nomes excluídos para PID agora, porque é o que ele entende — e porque o
+     PID de ontem não serve para o processo de hoje. */
+  let opcoes;
+  if (alvo === 'tudo') {
+    const abertos = await aplicativosMac();
+    const fora = abertos.filter(a => excluidos.includes(a.nome)).map(a => Number(a.id));
+    opcoes = { excludeProcesses: [...nossosPids(), ...fora] };
+  } else {
+    opcoes = { includeProcesses: [Number(alvo)] };
+  }
+
   // pedir a taxa é o que força a conversão para inteiro de 16 bits
-  const tee = new AudioTee({ sampleRate: TAXA, includeProcesses: [Number(pid)] });
+  const tee = new AudioTee({ sampleRate: TAXA, ...opcoes });
   const entregar = fatiador(aoReceber);
 
   let falha = null;
@@ -117,6 +136,13 @@ async function aplicativosWin() {
 }
 
 function ligarWin(processId, aoReceber) {
+  /* O application-loopback só sabe INCLUIR um processo, ou capturar o sistema
+     inteiro sem filtro nenhum. "Tudo menos" exigiria o modo exclude da API do
+     Windows, que ele não expõe — e capturar tudo sem filtro devolveria o
+     Discord e as vozes desta chamada, que é justamente o que não pode. */
+  if (processId === 'tudo') {
+    throw new Error('No Windows dá para levar o som de um aplicativo por vez, não o de todos.');
+  }
   const lib = require('application-loopback');
   const entregar = fatiador(aoReceber);
   const id = String(processId);
@@ -137,9 +163,9 @@ function aplicativos() {
  * Começa a capturar e devolve o formato dos blocos, para o worklet montar a
  * faixa. Os blocos chegam em `aoReceber` como Uint8Array.
  */
-async function ligar(id, aoReceber) {
+async function ligar(id, excluidos = [], aoReceber) {
   await desligar();
-  if (process.platform === 'darwin') return ligarMac(id, aoReceber);
+  if (process.platform === 'darwin') return ligarMac(id, excluidos, aoReceber);
   if (process.platform === 'win32') return ligarWin(id, aoReceber);
   throw new Error('Esta plataforma não tem captura por aplicativo.');
 }

@@ -216,12 +216,21 @@ npm run app
 ```
 
 Ele abre a mesma sala numa janela própria. Depois de compartilhar a tela, o
-**botão direito na sua própria tela** lista os aplicativos que estão tocando
-agora: escolha um, e só o som dele vai junto.
+**botão direito na sua própria tela** abre as opções de som:
 
-Nada liga sozinho, e a ausência é o recurso — o que não foi escolhido não entra.
-É o que permite usar o Discord para conversar e o Transmissor para mostrar a
-tela, sem que um coma o outro.
+- **Levar todo o som** — tudo que a máquina tocar, inclusive o que começar
+  depois. Menos o que você excluir.
+- **Levar só o som de X** — um aplicativo, e mais nada.
+- **Nunca levar X** — aparece no modo "todo o som". Marque o programa em que
+  você conversa e ele fica de fora, hoje e nas próximas vezes.
+
+O áudio **desta chamada nunca entra**, em nenhum dos modos — isso não é opção,
+é regra. Sem ela as vozes de quem está te ouvindo voltariam para dentro da
+transmissão, com atraso. É o que permite conversar no Discord e mostrar a tela
+por aqui: exclua o Discord uma vez e pronto.
+
+Nada liga sozinho: o som só vai depois de escolhido. E trocar de aplicativo ou
+mexer na exclusão não corta o áudio de quem está assistindo.
 
 Para apontar o app para uma sala já publicada por outra pessoa:
 
@@ -251,7 +260,12 @@ Quem já tem PipeWire com som funcionando quase certamente tem tudo isso — o
 `pipewire-pulse` depende do `libpulse`. Numa instalação enxuta do Debian, o
 `pactl` é o que costuma faltar.
 
-No **Windows** não há biblioteca de áudio a instalar: os dois executáveis vêm
+No **Windows** não existe o modo "todo o som": a biblioteca disponível só sabe
+capturar **um** aplicativo por vez, e capturar o sistema sem filtro devolveria
+justamente o que não pode ir. Lá o pedido é recusado com mensagem, e o caminho
+é escolher o aplicativo.
+
+Ainda no Windows, não há biblioteca de áudio a instalar: os dois executáveis vêm
 no pacote e usam a API do próprio sistema. O que eles exigem é o
 **Visual C++ Redistributable 2015–2022 (x64)** — `MSVCP140.dll` e
 `VCRUNTIME140.dll`. Quase toda máquina já tem; se faltar, é

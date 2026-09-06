@@ -120,7 +120,7 @@ async function iniciarTela() {
  */
 async function levarSom(id, nome) {
   fecharMenu();
-  const r = await ponteSom.ligar(id);
+  const r = await ponteSom.ligar(id, id === 'tudo' ? [...foraDoSom] : []);
   if (!r.ok) return avisar('sala', 'Não consegui levar o som: ' + r.erro);
 
   try {
@@ -175,10 +175,34 @@ $('btn-mic').addEventListener('click', async () => {
 
    Nada é ligado sozinho. Adivinhar erraria para o lado caro: mandar som que
    não era para ir só se descobre depois que já foi. */
-let alvoDoSom = null;    // nome do aplicativo cujo som está indo, ou null
+let alvoDoSom = null;    // 'tudo', o nome de um aplicativo, ou null
 let somDisponivel = false;
 
 ponteSom?.disponivel().then(pode => { somDisponivel = pode; });
+
+/* Quem fica de fora quando o som é "tudo". O nosso próprio app já sai sempre,
+   por PID, do lado de lá — esta lista é para o resto, e existe por um caso
+   concreto: conversar no Discord e mostrar a tela por aqui. Sem ela, a voz da
+   conversa voltaria para dentro da transmissão, com atraso.
+   Fica na máquina de quem compartilha: é preferência, não moderação. */
+const CHAVE_FORA = 'transmissor:som-fora';
+let foraDoSom = new Set();
+try { foraDoSom = new Set(JSON.parse(localStorage.getItem(CHAVE_FORA) || '[]')); } catch { /* primeira vez */ }
+
+async function alternarFora(nome) {
+  fecharMenu();
+  if (foraDoSom.has(nome)) foraDoSom.delete(nome);
+  else foraDoSom.add(nome);
+  try { localStorage.setItem(CHAVE_FORA, JSON.stringify([...foraDoSom])); } catch { /* sem espaço */ }
+
+  /* Trocar a regra não derruba a fonte de áudio, então a faixa que o outro
+     lado recebe continua a mesma — sem renegociar, sem cortar o som. */
+  if (alvoDoSom === 'tudo') {
+    const r = await ponteSom.ligar('tudo', [...foraDoSom]);
+    if (!r.ok) avisar('sala', 'Não consegui mudar o som: ' + r.erro);
+  }
+  renderizar();
+}
 
 /** Escolha do aplicativo, no botão direito da própria tela. */
 async function itensDeSom() {
@@ -186,14 +210,31 @@ async function itensDeSom() {
   const itens = [];
 
   if (alvoDoSom) itens.push(itemBotao('volume-x', 'Parar o som', tirarSom));
+  if (alvoDoSom !== 'tudo') {
+    itens.push(itemBotao('speaker', 'Levar todo o som', () => levarSom('tudo', 'tudo')));
+  }
   for (const app of apps) {
     if (alvoDoSom === app.nome) continue;
-    itens.push(itemBotao('volume-2', `Levar o som de ${app.nome}`, () => levarSom(app.id, app.nome)));
+    itens.push(itemBotao('volume-2', `Levar só o som de ${app.nome}`, () => levarSom(app.id, app.nome)));
   }
 
-  /* Sem nenhum aplicativo tocando, a lista vazia pareceria defeito. O
-     PipeWire só conhece quem tem fluxo de áudio aberto: um jogo em silêncio
-     não aparece aqui, e é isso que a nota explica. */
+  /* A exclusão só aparece no modo "tudo": é o único em que ela muda alguma
+     coisa. Levando o som de um aplicativo só, nada mais entra por definição.
+     A lista inclui quem já está excluído mesmo sem estar tocando — senão não
+     haveria como desfazer depois que o programa fecha. */
+  if (alvoDoSom === 'tudo') {
+    const nomes = [...new Set([...apps.map(a => a.nome), ...foraDoSom])];
+    if (nomes.length) itens.push(document.createElement('hr'));
+    for (const nome of nomes) {
+      const fora = foraDoSom.has(nome);
+      itens.push(itemBotao(fora ? 'volume-2' : 'volume-x',
+        fora ? `Voltar a levar ${nome}` : `Nunca levar ${nome}`,
+        () => alternarFora(nome)));
+    }
+  }
+
+  /* Sem aplicativo nenhum tocando, "levar todo o som" ainda funciona (o que
+     começar depois entra sozinho), mas a lista curta pareceria defeito. */
   if (!apps.length) {
     const nota = document.createElement('div');
     nota.className = 'menu-nota';
@@ -538,7 +579,8 @@ function desenharTile(p, streamTela) {
   t.nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
   // sem botão de som, a etiqueta na tela é o único aviso de que ele está indo
   t.marcaSom.hidden = !(p.local ? rtc.eu.somDaTela : rtc.temSom(streamTela));
-  t.marcaSom.title = p.local && alvoDoSom ? `levando o som de ${alvoDoSom}` : 'transmitindo com som';
+  t.marcaSom.title = !p.local || !alvoDoSom ? 'transmitindo com som'
+    : alvoDoSom === 'tudo' ? 'levando todo o som' : `levando o som de ${alvoDoSom}`;
   // o som não liga sozinho: o menu é o único lugar que o oferece, então ele
   // precisa estar dito em algum canto
   if (p.local && somDisponivel) {

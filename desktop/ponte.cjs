@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('transmissor', {
   som: {
     disponivel: () => ipcRenderer.invoke('som:disponivel'),
     aplicativos: () => ipcRenderer.invoke('som:aplicativos'),
-    ligar: alvo => ipcRenderer.invoke('som:ligar', alvo),
+    ligar: (alvo, excluidos) => ipcRenderer.invoke('som:ligar', alvo, excluidos),
     desligar: () => ipcRenderer.invoke('som:desligar'),
 
     /* Blocos de PCM, onde não há dispositivo para capturar. Entrega

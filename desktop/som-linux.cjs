@@ -21,6 +21,7 @@ const path = require('node:path');
 let PatchBay = null;   // classe do addon, carregada uma vez
 let bay = null;        // instância viva enquanto há som indo
 let carregou = false;
+let fonteAtual = null; // rótulo da fonte enquanto ela existe
 
 /**
  * Carrega o addon de `desktop/nativo/`, não do npm.
@@ -134,32 +135,59 @@ async function esperarFonteNova(antes, tentativas = 25) {
 }
 
 /**
- * Liga o som de um aplicativo e devolve o rótulo da fonte criada.
+ * A regra de captura.
  *
- * @param nome `application.name` vindo de aplicativos(). Por aplicativo, não
- *   por aba: as abas de um navegador dividem o mesmo nome.
+ * `'tudo'` leva o som da máquina inteira menos o que estiver na exclusão — e
+ * nós estamos sempre nela, senão as vozes desta chamada voltariam com atraso.
+ * Um nome de aplicativo leva só ele, e aí nada mais entra por definição.
  */
-async function ligar(nome) {
-  const b = instancia();
-  if (!b) throw new Error('O venmic não está disponível nesta máquina.');
-
-  await desligar();
-  const antes = nomesDasFontes(await pactl(['list', 'sources']));
-
+function montarRegra(alvo, excluidos) {
   // mute:false de propósito: quem compartilha continua ouvindo o próprio jogo.
   // Com mute:true o venmic silencia o aplicativo na máquina de quem transmite
-  const ok = b.link({ include: [{ 'application.name': nome }], exclude: nossosNos(), mute: false });
-  if (!ok) throw new Error(`Não consegui ligar o som de ${nome}.`);
+  const base = { mute: false, exclude: nossosNos() };
+  if (alvo === 'tudo') {
+    base.include = [];
+    for (const nome of excluidos) base.exclude.push({ 'application.name': nome });
+    return base;
+  }
+  return { ...base, include: [{ 'application.name': alvo }] };
+}
+
+/**
+ * Liga o som e devolve o rótulo da fonte, para a página achá-la.
+ *
+ * @param alvo `'tudo'` ou o `application.name` vindo de aplicativos()
+ * @param excluidos nomes que não devem entrar quando o alvo é `'tudo'`
+ */
+async function ligar(alvo, excluidos = []) {
+  const b = instancia();
+  if (!b) throw new Error('O venmic não está disponível nesta máquina.');
+  const regra = montarRegra(alvo, excluidos);
+
+  /* Já ligado: trocar a regra NÃO derruba a fonte — o link() do venmic
+     substitui o roteamento e o dispositivo continua o mesmo. Isso é o que
+     permite trocar de aplicativo, ou mexer na exclusão, sem que a faixa morra
+     e precise renegociar com todo mundo. Derrubar aqui era o caminho para o
+     stream ficar com faixa velha e muda na frente da nova. */
+  if (fonteAtual) {
+    if (!b.link(regra)) throw new Error('Não consegui trocar a fonte do som.');
+    return { fonte: fonteAtual, alvo };
+  }
+
+  const antes = nomesDasFontes(await pactl(['list', 'sources']));
+  if (!b.link(regra)) throw new Error('Não consegui ligar o som.');
 
   const fonte = await esperarFonteNova(antes);
   if (!fonte) {
     await desligar();
-    throw new Error('A fonte de áudio não subiu. O aplicativo ainda está tocando?');
+    throw new Error('A fonte de áudio não subiu. Há algum aplicativo tocando?');
   }
-  return { fonte, alvo: nome };
+  fonteAtual = fonte;
+  return { fonte, alvo };
 }
 
 async function desligar() {
+  fonteAtual = null;
   if (!bay) return;
   try { bay.unlink(); } catch (e) { console.error(e); }
 }

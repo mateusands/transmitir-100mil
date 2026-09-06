@@ -171,13 +171,13 @@ ipcMain.on('seletor:cancelar', () => responder(null));
    não era para ir. */
 ipcMain.handle('som:disponivel', () => som.disponivel());
 ipcMain.handle('som:aplicativos', () => som.aplicativos());
-ipcMain.handle('som:ligar', async (evento, alvo) => {
+ipcMain.handle('som:ligar', async (evento, alvo, excluidos) => {
   const remetente = evento.sender;
   try {
     /* Onde a entrega é por PCM, os blocos sobem para a janela que pediu — e
        só para ela. Checar isDestroyed a cada bloco porque a captura é do
        sistema: ela não para sozinha quando a janela fecha. */
-    return { ok: true, ...(await som.ligar(alvo, bytes => {
+    return { ok: true, ...(await som.ligar(alvo, excluidos || [], bytes => {
       if (!remetente.isDestroyed()) remetente.send('som:pcm', bytes);
     })) };
   } catch (e) { return { ok: false, erro: e.message }; }
