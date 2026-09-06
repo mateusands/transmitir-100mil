@@ -603,8 +603,16 @@ function removerTile(sid) {
  * botão de destravar, que tenta de novo com um gesto do usuário na mão.
  */
 function trocarFonte(el, stream) {
-  if (el.srcObject === (stream || null)) return;
-  el.srcObject = stream || null;
+  const mesma = el.srcObject === (stream || null);
+  if (!mesma) el.srcObject = stream || null;
+  // já está tocando o mesmo stream: não há o que fazer
+  else if (!stream || !el.paused) return;
+
+  /* Repetimos o play() quando o elemento está parado, mesmo com o stream
+     igual. O som da tela chega DEPOIS do vídeo — é escolhido depois de
+     compartilhar —, e no celular o navegador barra a reprodução até haver um
+     gesto. Sem esta segunda tentativa, o botão de destravar nunca aparecia e o
+     áudio ficava mudo para sempre. */
   if (stream) el.play().catch(() => { $('ativar-som').hidden = false; });
 }
 

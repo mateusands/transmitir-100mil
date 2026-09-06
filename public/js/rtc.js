@@ -129,6 +129,19 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
 
     let midia = peer.midias.get(origem.id);
     if (!midia) { midia = new MediaStream(); peer.midias.set(origem.id, midia); }
+
+    /* Faixa que o outro lado removeu não termina: o Chrome a deixa no stream
+       marcada como `muted`, e o nosso `onended` nunca dispara. Quem parava e
+       voltava a levar o som acabava com duas faixas de áudio — a velha muda na
+       frente da nova. E o <audio> toca a PRIMEIRA, então saía silêncio até
+       parar de compartilhar e começar de novo.
+       Só limpamos no momento em que chega uma substituta, então uma faixa
+       muda por soluço de rede não é descartada à toa. */
+    if (track.kind === 'audio') {
+      for (const velha of midia.getAudioTracks()) {
+        if (velha.readyState === 'ended' || velha.muted) midia.removeTrack(velha);
+      }
+    }
     midia.addTrack(track);
 
     track.onended = () => {
