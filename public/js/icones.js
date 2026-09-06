@@ -18,6 +18,7 @@ const CAMINHOS = {
   'monitor-off': '<path d="M12 17v4" /><path d="M17 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 1.184-1.826" /><path d="m2 2 20 20" /><path d="M8 21h8" /><path d="M8.656 3H20a2 2 0 0 1 2 2v10a2 2 0 0 1-.293 1.042" />',
   'circle-alert': '<circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" />',
   'loader-circle': '<path d="M21 12a9 9 0 1 1-6.219-8.56" />',
+  'speaker': '<rect width="16" height="20" x="4" y="2" rx="2" /><path d="M12 6h.01" /><circle cx="12" cy="14" r="4" /><path d="M12 14h.01" />',
 };
 
 /**

@@ -46,6 +46,11 @@ function somDe(sid) {
 /** sid em foco (a tela grande), ou null pro mosaico normal */
 let focado = null;
 
+/* A ponte só existe dentro do app de mesa. No navegador `window.transmissor`
+   não existe, o botão fica escondido e nada disto roda — a página continua a
+   mesma nos dois lugares. */
+const ponteSom = window.transmissor?.somDoSistema || null;
+
 pintarIcones(document);
 
 /* ================= entrada ================= */
@@ -93,11 +98,53 @@ $('form-entrar').addEventListener('submit', async e => {
 /* ================= barra ================= */
 
 async function compartilhar() {
-  try { await rtc.alternarTela(); }
-  catch (e) {
-    // cancelar o diálogo do navegador é rotina, não erro
+  if (rtc.eu.tela) return pararDeCompartilhar();
+  await iniciarTela();
+}
+
+async function iniciarTela() {
+  try {
+    await rtc.alternarTela();
+  } catch (e) {
     if (e?.name !== 'NotAllowedError') avisar('sala', 'Não consegui capturar a tela: ' + e.message);
+    return renderizar();
   }
+  renderizar();
+  if (somDisponivel) await levarSom(null);
+}
+
+/**
+ * Sem alvo, o app deduz pelo que está sendo capturado: janela de um aplicativo
+ * leva o som dele, tela inteira leva tudo. Com alvo, é a correção manual pelo
+ * menu da própria tela.
+ */
+async function levarSom(alvo, rotulo) {
+  fecharMenu();
+  const r = alvo ? await ponteSom.ligar(alvo) : await ponteSom.automatico();
+  if (!r.ok) return avisar('sala', 'A tela foi ao ar, mas o som não: ' + r.erro);
+
+  try {
+    await rtc.ligarSomDaTela(r.fonte);
+    alvoDoSom = rotulo || r.escopo;
+  } catch (e) {
+    await ponteSom.desligar();
+    avisar('sala', e.message);
+  }
+  renderizar();
+}
+
+async function tirarSom() {
+  fecharMenu();
+  alvoDoSom = null;
+  rtc.desligarSomDaTela();
+  await ponteSom?.desligar();
+  renderizar();
+}
+
+async function pararDeCompartilhar() {
+  await rtc.alternarTela();
+  alvoDoSom = null;
+  await ponteSom?.desligar();
   renderizar();
 }
 
@@ -113,6 +160,33 @@ $('btn-mic').addEventListener('click', async () => {
   }
   renderizar();
 });
+
+/* Som do sistema: o app cria a fonte no PipeWire, a página captura e manda
+   junto com a tela. Fora do app de mesa isto nem aparece.
+
+   A escolha é explícita — tudo, ou um aplicativo — porque o portal do Wayland
+   não conta o que você escolheu compartilhar em vídeo. Nós não temos como
+   adivinhar que aquela janela é o Brave; quem sabe é você. */
+let alvoDoSom = null;    // o que está sendo capturado, para a etiqueta na tela
+let somDisponivel = false;
+
+ponteSom?.disponivel().then(pode => { somDisponivel = pode; });
+
+/** Correção do que o automático deduziu, no botão direito da própria tela. */
+async function itensDeSom() {
+  const apps = await ponteSom.aplicativos();
+  const itens = [];
+
+  if (alvoDoSom) itens.push(itemBotao('volume-x', 'Parar o som', tirarSom));
+  if (alvoDoSom !== 'todo o som') {
+    itens.push(itemBotao('speaker', 'Levar todo o som', () => levarSom('tudo', 'todo o som')));
+  }
+  for (const app of apps) {
+    if (alvoDoSom === `o som de ${app.nome}`) continue;
+    itens.push(itemBotao('volume-2', `Levar só o som de ${app.nome}`, () => levarSom(app.no, `o som de ${app.nome}`)));
+  }
+  return itens;
+}
 
 $('btn-sair').addEventListener('click', () => { rtc.sair(); voltarParaEntrada(); });
 
@@ -169,11 +243,18 @@ document.addEventListener('keydown', e => {
 
 let menuAberto = null;
 
-function abrirMenu(sid, x, y) {
+async function abrirMenu(sid, x, y) {
   const p = participante(sid);
   if (!p) return;
 
   const itens = [];
+
+  /* Na sua própria tela, o menu é onde se corrige o que o automático deduziu —
+     ele acerta a janela pelo nome que o compositor dá ao nó de captura, e há
+     ambiente que não dá nome nenhum. */
+  if (p.local && somDisponivel && rtc.eu.tela) {
+    itens.push(...await itensDeSom());
+  }
 
   if (!p.local) {
     const s = somDe(sid);
@@ -306,7 +387,11 @@ function renderizar() {
   for (const p of lista) {
     const streamTela = p.local ? rtc.minhaTela() : rtc.streamDaTela(p.peer);
     const streamVoz = p.local ? null : rtc.streamDaVoz(p.peer);
-    p.transmitindo = rtc.temImagem(streamTela);
+    /* Na própria tela basta a captura existir. Exigir imagem viva escondia o
+       que estava sendo transmitido: no PipeWire a faixa passa um tempo `muted`
+       antes do primeiro quadro, e quem compartilhava via "ninguém está
+       compartilhando" enquanto o outro lado já recebia. */
+    p.transmitindo = p.local ? !!streamTela : rtc.temImagem(streamTela);
 
     desenharPessoa(p, streamTela, streamVoz);
     if (p.transmitindo) desenharTile(p, streamTela);
@@ -437,7 +522,9 @@ function desenharTile(p, streamTela) {
 
   t.tile.classList.toggle('focado', focado === p.sid);
   t.nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
-  t.marcaSom.hidden = p.local || !rtc.temSom(streamTela);
+  // sem botão de som, a etiqueta na tela é o único aviso de que ele está indo
+  t.marcaSom.hidden = !(p.local ? rtc.eu.somDaTela : rtc.temSom(streamTela));
+  t.marcaSom.title = p.local && alvoDoSom ? `levando ${alvoDoSom}` : 'transmitindo com som';
   t.marcaMudo.hidden = !s?.mudo;
 }
 

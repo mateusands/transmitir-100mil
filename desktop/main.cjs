@@ -1,0 +1,230 @@
+/* App de mesa: a mesma sala do navegador, com duas coisas que só existem aqui —
+ * seletor de tela próprio (onde o sistema não tem um) e som do sistema.
+ *
+ * Uma página web não escolhe o que capturar: o getDisplayMedia sempre abre o
+ * diálogo do navegador, e é proposital. Aqui somos o navegador, então o
+ * setDisplayMediaRequestHandler responde com a fonte que nós escolhemos.
+ *
+ * A página em public/ não muda uma linha por causa disto.
+ *
+ *   npm run app                              abre na sala local
+ *   TRANSMISSOR_URL=https://... npm run app  abre num endereço publicado
+ */
+
+
+const { app, BrowserWindow, Menu, desktopCapturer, ipcMain, session } = require('electron');
+const path = require('node:path');
+const net = require('node:net');
+const { fork } = require('node:child_process');
+const somLinux = require('./som-linux.cjs');
+
+const RAIZ = path.join(__dirname, '..');
+const PORTA = Number(process.env.PORT) || 3000;
+const ENDERECO = process.env.TRANSMISSOR_URL || `http://localhost:${PORTA}`;
+
+/* Som do sistema junto com a tela: no Windows o Chromium entrega via
+   'loopback'. No macOS depende de flags que variam por versão, e no Linux quem
+   manda na captura é o portal do sistema — em nenhum dos dois dá pra prometer.
+   Melhor não oferecer do que oferecer e não funcionar. */
+const SOM_DO_SISTEMA = process.platform === 'win32';
+
+/* No Linux o portal do ambiente JÁ É o seletor, e não dá pra concorrer com ele:
+   `desktopCapturer.getSources()` não lista janela nenhuma por conta própria —
+   a chamada é o que ABRE o diálogo do sistema, e o que volta é o que a pessoa
+   escolheu lá. Abrir uma janela nossa em cima disso dá o pior dos dois mundos:
+   a nossa nasce vazia (está esperando o portal), o portal aparece por trás, e
+   depois de escolher no portal a pessoa teria que escolher outra vez na nossa.
+   Aqui o portal decide sozinho — e ele faz mais do que faríamos: tem busca,
+   recorte de região e tela virtual.
+   (`useSystemPicker` não resolve: é opção de macOS, no Linux é ignorada.) */
+const SELETOR_DO_SISTEMA = process.platform === 'linux';
+
+let janela = null;
+let servidor = null;
+
+/* ================= servidor ================= */
+
+function portaOcupada(porta) {
+  return new Promise(resolve => {
+    const c = net.connect(porta, '127.0.0.1');
+    c.once('connect', () => { c.end(); resolve(true); });
+    c.once('error', () => { c.destroy(); resolve(false); });
+  });
+}
+
+/**
+ * Sobe o servidor só se ninguém estiver na porta — assim o app funciona tanto
+ * sozinho quanto ao lado de um `npm run hospedar` já rodando, sem brigar por
+ * ela. Com TRANSMISSOR_URL o endereço é de outra máquina; aí não há o que subir.
+ */
+async function garantirServidor() {
+  if (process.env.TRANSMISSOR_URL) return;
+  if (await portaOcupada(PORTA)) return;
+  servidor = fork(path.join(RAIZ, 'server', 'index.js'), [], {
+    env: { ...process.env, PORT: String(PORTA) },
+    stdio: 'inherit',
+  });
+  for (let i = 0; i < 60; i++) {
+    if (await portaOcupada(PORTA)) return;
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
+/* ================= seletor de tela ================= */
+
+let pendente = null;   // { resolver, janela } enquanto o seletor está aberto
+
+async function listarFontes() {
+  const fontes = await desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: { width: 480, height: 270 },
+    fetchWindowIcons: true,
+  });
+
+  return fontes.map(f => ({
+    id: f.id,
+    // no Wayland o compositor não entrega a lista de janelas: vem uma fonte só,
+    // sem nome. Dar um nome aqui é melhor que mostrar um retângulo anônimo
+    nome: f.name || (f.id.startsWith('screen') ? 'Tela inteira' : 'A tela toda'),
+    tipo: f.id.startsWith('screen') ? 'tela' : 'janela',
+    miniatura: f.thumbnail.isEmpty() ? null : f.thumbnail.toDataURL(),
+    icone: f.appIcon && !f.appIcon.isEmpty() ? f.appIcon.toDataURL() : null,
+  }));
+}
+
+function abrirSeletor(pai, fontes) {
+  return new Promise(resolve => {
+    const seletor = new BrowserWindow({
+      parent: pai,
+      modal: true,
+      width: 900,
+      height: 620,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      show: false,
+      backgroundColor: '#0b0d10',
+      title: 'Compartilhar tela',
+      autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
+    });
+
+    pendente = { resolver: resolve, janela: seletor, fontes };
+    seletor.loadFile(path.join(__dirname, 'seletor.html'));
+    seletor.once('ready-to-show', () => seletor.show());
+    // fechar pela decoração da janela é cancelar, não travar o pedido
+    seletor.on('closed', () => { if (pendente?.janela === seletor) responder(null); });
+  });
+}
+
+function responder(escolha) {
+  if (!pendente) return;
+  const { resolver, janela: seletor } = pendente;
+  pendente = null;
+  resolver(escolha);
+  if (!seletor.isDestroyed()) seletor.close();
+}
+
+/* As fontes já vêm listadas de fora: buscá-las com a janela aberta a faria
+   nascer vazia enquanto o sistema responde. */
+ipcMain.handle('seletor:fontes', () => ({
+  fontes: pendente?.fontes || [],
+  somDoSistema: SOM_DO_SISTEMA,
+  plataforma: process.platform,
+}));
+ipcMain.on('seletor:escolher', (_e, escolha) => responder(escolha));
+ipcMain.on('seletor:cancelar', () => responder(null));
+
+/* ================= som do sistema (Linux) ================= */
+
+ipcMain.handle('som:disponivel', () => somLinux.disponivel());
+ipcMain.handle('som:aplicativos', () => somLinux.aplicativos());
+ipcMain.handle('som:automatico', async () => {
+  try { return { ok: true, ...(await somLinux.ligarAutomatico()) }; }
+  catch (e) { return { ok: false, erro: e.message }; }
+});
+ipcMain.handle('som:ligar', async (_e, alvo) => {
+  try { return { ok: true, ...(await somLinux.ligar(alvo)) }; }
+  catch (e) { return { ok: false, erro: e.message }; }
+});
+ipcMain.handle('som:desligar', async () => { await somLinux.desligar(); return { ok: true }; });
+
+/* ================= janela principal ================= */
+
+function criarJanela() {
+  janela = new BrowserWindow({
+    width: 1180,
+    height: 780,
+    backgroundColor: '#0b0d10',
+    title: 'Transmissor',
+    autoHideMenuBar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      // ponte estreitíssima: só o som do sistema. O seletor de tela não passa
+      // por aqui — ele é intermediado pela sessão, sem a página participar
+      preload: path.join(__dirname, 'ponte.cjs'),
+    },
+  });
+
+  /* A ponte carrega junto com a janela, então a janela não pode sair da nossa
+     origem: sem isto, um clique num link externo levaria uma página qualquer
+     para dentro de um contexto que sabe carregar módulo de áudio. */
+  const origem = new URL(ENDERECO).origin;
+  janela.webContents.on('will-navigate', (evento, destino) => {
+    if (!destino.startsWith(origem)) evento.preventDefault();
+  });
+  janela.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  janela.loadURL(ENDERECO);
+}
+
+app.whenReady().then(async () => {
+  // sem menu de aplicativo: File/Edit/View não significam nada aqui
+  Menu.setApplicationMenu(null);
+  await somLinux.varrerSobras();   // sobras de uma sessão que fechou mal
+  await garantirServidor();
+
+  const origem = new URL(ENDERECO).origin;
+
+  /* O pedido de tela da página cai aqui em vez de num diálogo do Chromium. */
+  session.defaultSession.setDisplayMediaRequestHandler(async (pedido, callback) => {
+    if (SELETOR_DO_SISTEMA) {
+      // pedir as fontes é o que abre o diálogo do sistema; o que volta já é a
+      // escolha da pessoa. Uma janela só, a do ambiente dela.
+      const [fonte] = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 0, height: 0 },   // ninguém vai desenhar nada
+      });
+      return callback(fonte ? { video: fonte } : undefined);
+    }
+
+    const fontes = await listarFontes();
+    const escolha = await abrirSeletor(janela, fontes);
+    if (!escolha) return callback();   // cancelou: a página recebe NotAllowedError, que ela já trata
+
+    const resposta = { video: { id: escolha.id, name: escolha.nome } };
+    if (escolha.som && SOM_DO_SISTEMA) resposta.audio = 'loopback';
+    callback(resposta);
+  });
+
+  /* Microfone: liberado só para a nossa própria origem. Qualquer outra coisa
+     que a página venha a carregar não herda a permissão. */
+  session.defaultSession.setPermissionRequestHandler((conteudo, permissao, permitir) => {
+    const daCasa = conteudo.getURL().startsWith(origem);
+    permitir(daCasa && ['media', 'display-capture'].includes(permissao));
+  });
+
+  criarJanela();
+  app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) criarJanela(); });
+});
+
+/* Fechou a janela, acabou: o servidor que este processo subiu morre junto, sem
+   deixar porta ocupada nem processo pendurado. */
+app.on('window-all-closed', () => app.quit());
+app.on('before-quit', async () => {
+  try { servidor?.kill(); } catch {}
+  // o módulo de áudio é do sistema, não do app: sair sem descarregar deixaria
+  // uma fonte fantasma na configuração de quem usou
+  await somLinux.desligar();
+});

@@ -1,21 +1,12 @@
 #!/usr/bin/env bash
 # Modo pasta: hospedar sem instalar nada na máquina.
 #
-# O que falta no sistema vem para dentro desta pasta e fica só aqui — Node em
-# .node/, cloudflared em .bin/, dependências em node_modules/. Apagar a pasta do
-# projeto (ou rodar `tools/pasta.sh limpar`) não deixa rastro no computador: nada
-# de gerenciador de pacotes, nada de PATH do sistema, nada de serviço.
+# O que falta vem para .node/ e .bin/ e sai junto com a pasta do projeto. O que
+# já existe no sistema é reaproveitado.
 #
-# O que JÁ existe na máquina é reaproveitado: se você tem Node 22+ e cloudflared,
-# ele usa os seus e não baixa nada.
-#
-#   tools/pasta.sh             sobe a sala (equivale ao npm run hospedar)
+#   tools/pasta.sh             sobe a sala
 #   tools/pasta.sh verificar   mostra o que seria usado, sem subir nada
 #   tools/pasta.sh limpar      apaga .node/, .bin/ e node_modules/
-#
-# Enquanto roda, é um processo só, em primeiro plano. Ctrl+C encerra o servidor
-# e o túnel juntos: o `exec` no fim entrega o terminal ao Node, então o sinal
-# chega nele direto, sem shell no meio para segurar processo órfão.
 
 set -euo pipefail
 

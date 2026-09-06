@@ -16,10 +16,11 @@ let aoMudar = () => {};
 /** sid -> { sid, nome, pc, polite, midias, meta, tela, mic, conexao } */
 export const peers = new Map();
 
-export const eu = { sid: null, nome: '', sala: '', tela: false, mic: false };
+export const eu = { sid: null, nome: '', sala: '', tela: false, mic: false, somDaTela: false };
 
-let telaStream = null;  // vídeo da tela (+ áudio da aba/sistema, se houver)
-let micStream = null;   // áudio do microfone
+let telaStream = null;      // vídeo da tela (+ áudio da aba/sistema, se houver)
+let micStream = null;       // áudio do microfone
+let somTelaStream = null;   // áudio do sistema capturado à parte (Linux, via app)
 
 /* ================= ciclo de vida ================= */
 
@@ -199,15 +200,102 @@ export async function alternarTela() {
     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
   });
 
+  const track = telaStream.getVideoTracks()[0];
+
   // parar pelo botão nativo do navegador tem que refletir na interface
-  telaStream.getVideoTracks()[0].addEventListener('ended', () => {
+  track.addEventListener('ended', () => {
     if (telaStream) { pararTela(); publicarEstado(); aoMudar(); }
   });
+
+  /* No Linux a captura vem do PipeWire e a faixa nasce `muted`, só desmutando
+     quando o primeiro quadro chega. Sem escutar isso, a tela era compartilhada
+     de verdade e a interface continuava mostrando "ninguém está compartilhando"
+     — a faixa mudava de estado e ninguém redesenhava. */
+  track.addEventListener('mute', aoMudar);
+  track.addEventListener('unmute', aoMudar);
 
   adicionar(telaStream);
   eu.tela = true;
   publicarEstado();
   aoMudar();
+}
+
+/**
+ * Captura a fonte de áudio criada pelo app e a manda junto com a tela.
+ *
+ * As faixas entram em `telaStream`, não numa stream própria: assim chegam do
+ * outro lado com o id da tela e caem no controle "Som da tela", separadas da
+ * voz. Recebe o rótulo porque o id do dispositivo só existe depois que o
+ * navegador enumera.
+ */
+export async function ligarSomDaTela(rotulo) {
+  if (!telaStream) throw new Error('Compartilhe a tela antes de ligar o som do sistema.');
+  if (somTelaStream) return;
+
+  const deviceId = await acharEntrada(rotulo);
+  if (!deviceId) throw new Error(`Não encontrei a fonte de áudio "${rotulo}".`);
+
+  somTelaStream = await navigator.mediaDevices.getUserMedia({
+    // som de sistema não é voz: cancelar eco ou "melhorar" o sinal só estraga
+    audio: {
+      deviceId: { exact: deviceId },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    },
+  });
+
+  for (const faixa of somTelaStream.getAudioTracks()) {
+    telaStream.addTrack(faixa);
+    for (const peer of peers.values()) {
+      try { peer.pc.addTrack(faixa, telaStream); } catch (e) { console.error(e); }
+    }
+  }
+
+  eu.somDaTela = true;
+  aoMudar();
+}
+
+export function desligarSomDaTela() {
+  if (!somTelaStream) return;
+  remover(somTelaStream);
+  for (const faixa of somTelaStream.getAudioTracks()) {
+    try { telaStream?.removeTrack(faixa); } catch {}
+    faixa.stop();
+  }
+  somTelaStream = null;
+  eu.somDaTela = false;
+  aoMudar();
+}
+
+/**
+ * Acha a entrada de áudio pelo rótulo, esperando ela aparecer.
+ *
+ * Duas esperas embutidas: o navegador só devolve rótulo depois de alguma
+ * permissão de áudio concedida, e a lista de dispositivos dele é um cache que
+ * demora a notar a fonte recém-criada no sistema — o app já a vê no `pactl`
+ * enquanto o Chromium ainda não. Sem o laço, o primeiro compartilhamento falha
+ * com "não encontrei a fonte" e o segundo funciona.
+ */
+async function acharEntrada(rotulo, esperaMax = 6000) {
+  const ateQuando = Date.now() + esperaMax;
+  let liberou = false;
+
+  while (Date.now() < ateQuando) {
+    const lista = await navigator.mediaDevices.enumerateDevices();
+
+    if (!liberou && !lista.some(d => d.kind === 'audioinput' && d.label)) {
+      const temporario = await navigator.mediaDevices.getUserMedia({ audio: true });
+      for (const t of temporario.getTracks()) t.stop();
+      liberou = true;
+      continue;
+    }
+
+    const achado = lista.find(d => d.kind === 'audioinput' && d.label.includes(rotulo));
+    if (achado) return achado.deviceId;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return null;
 }
 
 export async function alternarMic() {
@@ -243,6 +331,8 @@ function remover(stream) {
 
 function pararTela() {
   if (!telaStream) return;
+  // o som do sistema viaja com a tela: parou a tela, ele não tem mais onde morar
+  desligarSomDaTela();
   remover(telaStream);
   for (const t of telaStream.getTracks()) t.stop();
   telaStream = null;
