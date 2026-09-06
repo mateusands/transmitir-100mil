@@ -14,12 +14,19 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, copyFileSync, mkdirSync, statSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync, copyFileSync, mkdirSync, statSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const VERSAO = '7.2.1';   // trocar aqui é a única mudança necessária
+const VERSAO = '7.2.1';
+/* A soma do tarball publicado, como o npm a registra em `dist.integrity`. O
+   `npm pack` devolve o arquivo publicado byte a byte — conferido —, então isto
+   prova que o binário que entra no repositório é o que o npm serviu, e não algo
+   trocado no caminho. Ao subir a versão, troque as duas linhas juntas:
+   `npm view @vencord/venmic@<versao> dist.integrity` diz a nova. */
+const INTEGRIDADE = 'sha512-VwRDQDpLMgN328VeCdnZ/UwJpoBUbAi3rdXK3QqhCHC/u5p8mhze3/R1Y1Beoxe1MICITelE2dzATQ7pJU/xuw==';
 const ARQUITETURAS = ['x64', 'arm64'];
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -52,6 +59,16 @@ try {
   // o npm despeja o inventário do pacote em stderr; só o nome do .tgz interessa
   const tgz = rodar('npm', ['pack', `@vencord/venmic@${VERSAO}`, '--pack-destination', tmp],
     { stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').pop();
+
+  // confere ANTES de extrair: o arquivo veio da rede, e o que sai dele vai para
+  // dentro do repositório e roda com todos os privilégios do processo principal
+  const soma = 'sha512-' + createHash('sha512').update(readFileSync(path.join(tmp, tgz))).digest('base64');
+  if (soma !== INTEGRIDADE) {
+    console.error(`  A soma nao confere.\n    esperada: ${INTEGRIDADE}\n    obtida:   ${soma}`);
+    console.error('  Se voce subiu a versao, atualize INTEGRIDADE junto. Se nao subiu, PARE.');
+    process.exit(1);
+  }
+  console.log('  Soma sha512 confere com o que o npm publicou.');
   rodar('tar', ['-xzf', path.join(tmp, tgz), '-C', tmp]);
 
   mkdirSync(DESTINO, { recursive: true });

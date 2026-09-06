@@ -30,7 +30,7 @@
     "node": ">=22"
   },
   "optionalDependencies": {
-    "application-loopback": "^1.2.7",
-    "audiotee": "^0.0.7"
+    "application-loopback": "1.2.7",
+    "audiotee": "0.0.7"
   }
 }

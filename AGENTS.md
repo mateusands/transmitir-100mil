@@ -78,6 +78,11 @@ comando que interessa.
    npm: o pacote declara o `cmake-js` como dependência de runtime e ele
    arrastava 71 pacotes que nunca executam. Passado o `strip`, o binário cai de
    25 MB para 1,8 MB — quase tudo era `debug_info`.
+   Duas regras que vêm junto: binário que entra no repositório tem a **soma
+   conferida** contra o que o npm publicou (`atualizar-venmic` recusa e sai com
+   erro se não bater), e pacote que embarca executável fica em **versão exata**,
+   sem `^`. Um pacote pequeno com binário dentro não deve subir de versão
+   sozinho num `npm install`.
 7. **O nosso próprio áudio nunca entra na captura.** Levar o som da máquina
    inteira é opção legítima e existe ("Levar todo o som"), mas o processo
    `"Audio Service"` do Chromium fica **sempre** de fora — senão as vozes desta
