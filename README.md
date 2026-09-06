@@ -216,20 +216,19 @@ mandar uma mudança, em [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 🤖 Uso de IA
 
-Transparência importa aqui, então: este projeto foi construído **com auxílio de
-inteligência artificial** — o [Claude Code](https://claude.com/claude-code) da
-Anthropic — usada como assistente ao longo do desenvolvimento e da manutenção.
+Transparência importa aqui, então: este projeto é construído **com auxílio de
+inteligência artificial**. Não é uma ferramenta só — assistentes diferentes
+entram em momentos diferentes, e a lista muda com o tempo.
 
-Na prática, a IA entra no trabalho repetitivo e de baixo nível: escrever o
-código de um caminho já decidido, converter ícones, redigir e atualizar
-documentação, montar scripts de validação, procurar o ponto exato de um defeito.
-As decisões de escopo, arquitetura e desenho são humanas, e **toda mudança passa
-por revisão de gente antes de entrar** — inclusive as que a IA escreveu por
-inteiro.
+Na prática, a IA pega o trabalho repetitivo e de baixo nível: escrever o código
+de um caminho já decidido, converter ícones, redigir e atualizar documentação,
+montar scripts de validação, procurar o ponto exato de um defeito. As decisões
+de escopo, arquitetura e desenho são humanas, e **toda mudança passa por revisão
+de gente antes de entrar** — inclusive as que a IA escreveu por inteiro.
 
-As regras que o assistente segue neste repositório estão versionadas em
-[AGENTS.md](AGENTS.md) e [CLAUDE.md](CLAUDE.md): são as mesmas que valem para
-qualquer pessoa que mexa no código.
+As regras que qualquer assistente segue aqui estão versionadas em
+[AGENTS.md](AGENTS.md): são as mesmas que valem para qualquer pessoa que mexa no
+código.
 
 > **AI Usage Disclosure** — Transparency and integrity are important to this
 > project. Artificial Intelligence (AI) tools were used as part of the
