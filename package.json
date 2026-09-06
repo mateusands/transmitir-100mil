@@ -13,9 +13,10 @@
   "scripts": {
     "start": "node server/index.js",
     "hospedar": "node tools/hospedar.mjs",
-    "check": "node --check server/index.js && node --check tools/hospedar.mjs && node --check tools/gerar-icones.mjs && node --check public/js/app.js && node --check public/js/rtc.js && node --check public/js/icones.js",
+    "check": "node --check server/index.js && node --check tools/hospedar.mjs && node --check tools/gerar-icones.mjs && node --check tools/atualizar-venmic.mjs && node --check public/js/app.js && node --check public/js/rtc.js && node --check public/js/icones.js && node --check desktop/main.cjs && node --check desktop/ponte.cjs && node --check desktop/preload.cjs && node --check desktop/som-linux.cjs",
     "gerar-icones": "node tools/gerar-icones.mjs",
-    "app": "electron ."
+    "app": "electron .",
+    "atualizar-venmic": "node tools/atualizar-venmic.mjs"
   },
   "dependencies": {
     "express": "^5.2.1",
@@ -27,8 +28,5 @@
   },
   "engines": {
     "node": ">=22"
-  },
-  "optionalDependencies": {
-    "@vencord/venmic": "^7.2.1"
   }
 }

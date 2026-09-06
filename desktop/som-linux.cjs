@@ -16,15 +16,26 @@
 
 const { app } = require('electron');
 const { execFile } = require('node:child_process');
+const path = require('node:path');
 
 let PatchBay = null;   // classe do addon, carregada uma vez
 let bay = null;        // instância viva enquanto há som indo
 let carregou = false;
 
+/**
+ * Carrega o addon de `desktop/nativo/`, não do npm.
+ *
+ * O pacote @vencord/venmic declara o cmake-js como dependência de RUNTIME, e
+ * ele arrasta 71 pacotes que nunca executam — o binário já vem pronto, o
+ * cmake-js só serviria para compilar. Versionar o `.node` (enxuto, 1,8 MB por
+ * arquitetura) sai mais barato para quem instala. `tools/atualizar-venmic.mjs`
+ * regenera os arquivos.
+ */
 function carregar() {
   if (carregou) return;
   carregou = true;
-  try { ({ PatchBay } = require('@vencord/venmic')); }
+  const arquivo = path.join(__dirname, 'nativo', `venmic-linux-${process.arch}.node`);
+  try { ({ PatchBay } = require(arquivo)); }
   catch (e) { console.error('venmic não carregou:', e.message); }
 }
 
@@ -60,11 +71,15 @@ function nossosNos() {
   return pid ? [{ 'application.process.id': pid }] : [];
 }
 
-const PROPS = ['application.name', 'application.process.id', 'application.process.binary', 'media.class', 'node.name'];
-
 /**
  * Aplicativos com áudio tocando agora, um por nome. Um jogo mudo não aparece —
  * o PipeWire só conhece quem tem fluxo aberto.
+ *
+ * `list()` sem argumento de propósito: o venmic não usa a lista de propriedades
+ * para escolher o que devolver, e sim para FILTRAR os nós que têm todas elas —
+ * e devolve o nó inteiro de qualquer jeito. Pedir `application.process.binary`
+ * escondia calado todo aplicativo que não expõe essa chave, que é opcional.
+ * Medido: 7 nós sem argumento, 1 nó pedindo as cinco propriedades.
  */
 function aplicativos() {
   const b = instancia();
@@ -72,12 +87,13 @@ function aplicativos() {
   const meu = nossoPid();
   const vistos = new Map();
 
-  for (const no of b.list(PROPS)) {
+  for (const no of b.list()) {
     if (no['media.class'] !== 'Stream/Output/Audio') continue;
     if (meu && no['application.process.id'] === meu) continue;
     const nome = no['application.name'] || no['node.name'];
     if (!nome || vistos.has(nome)) continue;
-    vistos.set(nome, { nome, binario: no['application.process.binary'] || null });
+    // id é o próprio nome: é por application.name que o venmic casa os fluxos
+    vistos.set(nome, { id: nome, nome });
   }
   return [...vistos.values()];
 }
