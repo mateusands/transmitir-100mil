@@ -1,5 +1,6 @@
 /* App de mesa: a mesma sala do navegador, com duas coisas que só existem aqui —
- * seletor de tela próprio (onde o sistema não tem um) e som do sistema.
+ * seletor de tela próprio (onde o sistema não tem um) e o som de um aplicativo
+ * escolhido, que nenhum navegador entrega.
  *
  * Uma página web não escolhe o que capturar: o getDisplayMedia sempre abre o
  * diálogo do navegador, e é proposital. Aqui somos o navegador, então o
@@ -21,12 +22,6 @@ const somLinux = require('./som-linux.cjs');
 const RAIZ = path.join(__dirname, '..');
 const PORTA = Number(process.env.PORT) || 3000;
 const ENDERECO = process.env.TRANSMISSOR_URL || `http://localhost:${PORTA}`;
-
-/* Som do sistema junto com a tela: no Windows o Chromium entrega via
-   'loopback'. No macOS depende de flags que variam por versão, e no Linux quem
-   manda na captura é o portal do sistema — em nenhum dos dois dá pra prometer.
-   Melhor não oferecer do que oferecer e não funcionar. */
-const SOM_DO_SISTEMA = process.platform === 'win32';
 
 /* No Linux o portal do ambiente JÁ É o seletor, e não dá pra concorrer com ele:
    `desktopCapturer.getSources()` não lista janela nenhuma por conta própria —
@@ -129,20 +124,18 @@ function responder(escolha) {
    nascer vazia enquanto o sistema responde. */
 ipcMain.handle('seletor:fontes', () => ({
   fontes: pendente?.fontes || [],
-  somDoSistema: SOM_DO_SISTEMA,
   plataforma: process.platform,
 }));
 ipcMain.on('seletor:escolher', (_e, escolha) => responder(escolha));
 ipcMain.on('seletor:cancelar', () => responder(null));
 
-/* ================= som do sistema (Linux) ================= */
+/* ================= som do aplicativo compartilhado ================= */
 
+/* Não há "automático": no modelo include, quem escolhe o aplicativo é quem
+   compartilha. Adivinhar levaria a errar para o lado caro — mandar som que
+   não era para ir. */
 ipcMain.handle('som:disponivel', () => somLinux.disponivel());
 ipcMain.handle('som:aplicativos', () => somLinux.aplicativos());
-ipcMain.handle('som:automatico', async () => {
-  try { return { ok: true, ...(await somLinux.ligarAutomatico()) }; }
-  catch (e) { return { ok: false, erro: e.message }; }
-});
 ipcMain.handle('som:ligar', async (_e, alvo) => {
   try { return { ok: true, ...(await somLinux.ligar(alvo)) }; }
   catch (e) { return { ok: false, erro: e.message }; }
@@ -182,7 +175,6 @@ function criarJanela() {
 app.whenReady().then(async () => {
   // sem menu de aplicativo: File/Edit/View não significam nada aqui
   Menu.setApplicationMenu(null);
-  await somLinux.varrerSobras();   // sobras de uma sessão que fechou mal
   await garantirServidor();
 
   const origem = new URL(ENDERECO).origin;
@@ -203,9 +195,11 @@ app.whenReady().then(async () => {
     const escolha = await abrirSeletor(janela, fontes);
     if (!escolha) return callback();   // cancelou: a página recebe NotAllowedError, que ela já trata
 
-    const resposta = { video: { id: escolha.id, name: escolha.nome } };
-    if (escolha.som && SOM_DO_SISTEMA) resposta.audio = 'loopback';
-    callback(resposta);
+    /* Só vídeo. O 'loopback' do Chromium existe no Windows, mas é o sistema
+       inteiro: levaria o Discord e as vozes da nossa própria chamada de volta
+       para dentro da transmissão. O som vai pelo caminho por aplicativo, que a
+       pessoa escolhe no menu da própria tela. */
+    callback({ video: { id: escolha.id, name: escolha.nome } });
   });
 
   /* Microfone: liberado só para a nossa própria origem. Qualquer outra coisa

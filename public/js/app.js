@@ -49,7 +49,7 @@ let focado = null;
 /* A ponte só existe dentro do app de mesa. No navegador `window.transmissor`
    não existe, o botão fica escondido e nada disto roda — a página continua a
    mesma nos dois lugares. */
-const ponteSom = window.transmissor?.somDoSistema || null;
+const ponteSom = window.transmissor?.som || null;
 
 pintarIcones(document);
 
@@ -110,22 +110,22 @@ async function iniciarTela() {
     return renderizar();
   }
   renderizar();
-  if (somDisponivel) await levarSom(null);
 }
 
 /**
- * Sem alvo, o app deduz pelo que está sendo capturado: janela de um aplicativo
- * leva o som dele, tela inteira leva tudo. Com alvo, é a correção manual pelo
- * menu da própria tela.
+ * Leva o som de um aplicativo junto com a tela.
+ *
+ * Recebe o rótulo de volta em vez de supô-lo: o nome do dispositivo é o que a
+ * página usa para achá-lo, e quem sabe qual ficou registrado é o sistema.
  */
-async function levarSom(alvo, rotulo) {
+async function levarSom(nome) {
   fecharMenu();
-  const r = alvo ? await ponteSom.ligar(alvo) : await ponteSom.automatico();
-  if (!r.ok) return avisar('sala', 'A tela foi ao ar, mas o som não: ' + r.erro);
+  const r = await ponteSom.ligar(nome);
+  if (!r.ok) return avisar('sala', 'Não consegui levar o som: ' + r.erro);
 
   try {
     await rtc.ligarSomDaTela(r.fonte);
-    alvoDoSom = rotulo || r.escopo;
+    alvoDoSom = nome;
   } catch (e) {
     await ponteSom.desligar();
     avisar('sala', e.message);
@@ -161,29 +161,40 @@ $('btn-mic').addEventListener('click', async () => {
   renderizar();
 });
 
-/* Som do sistema: o app cria a fonte no PipeWire, a página captura e manda
-   junto com a tela. Fora do app de mesa isto nem aparece.
+/* Som de UM aplicativo, escolhido por quem compartilha. Fora do app de mesa
+   isto nem aparece.
 
-   A escolha é explícita — tudo, ou um aplicativo — porque o portal do Wayland
-   não conta o que você escolheu compartilhar em vídeo. Nós não temos como
-   adivinhar que aquela janela é o Brave; quem sabe é você. */
-let alvoDoSom = null;    // o que está sendo capturado, para a etiqueta na tela
+   Não existe "levar tudo", e a ausência é o recurso: o que não foi escolhido
+   não entra. É assim que a voz da chamada — a nossa e a de outro programa,
+   como o Discord — não volta para dentro da transmissão. Quem já está na call
+   não precisa se ouvir de novo, com atraso.
+
+   Nada é ligado sozinho. Adivinhar erraria para o lado caro: mandar som que
+   não era para ir só se descobre depois que já foi. */
+let alvoDoSom = null;    // nome do aplicativo cujo som está indo, ou null
 let somDisponivel = false;
 
 ponteSom?.disponivel().then(pode => { somDisponivel = pode; });
 
-/** Correção do que o automático deduziu, no botão direito da própria tela. */
+/** Escolha do aplicativo, no botão direito da própria tela. */
 async function itensDeSom() {
   const apps = await ponteSom.aplicativos();
   const itens = [];
 
   if (alvoDoSom) itens.push(itemBotao('volume-x', 'Parar o som', tirarSom));
-  if (alvoDoSom !== 'todo o som') {
-    itens.push(itemBotao('speaker', 'Levar todo o som', () => levarSom('tudo', 'todo o som')));
-  }
   for (const app of apps) {
-    if (alvoDoSom === `o som de ${app.nome}`) continue;
-    itens.push(itemBotao('volume-2', `Levar só o som de ${app.nome}`, () => levarSom(app.no, `o som de ${app.nome}`)));
+    if (alvoDoSom === app.nome) continue;
+    itens.push(itemBotao('volume-2', `Levar o som de ${app.nome}`, () => levarSom(app.nome)));
+  }
+
+  /* Sem nenhum aplicativo tocando, a lista vazia pareceria defeito. O
+     PipeWire só conhece quem tem fluxo de áudio aberto: um jogo em silêncio
+     não aparece aqui, e é isso que a nota explica. */
+  if (!apps.length) {
+    const nota = document.createElement('div');
+    nota.className = 'menu-nota';
+    nota.textContent = 'nenhum aplicativo tocando agora';
+    itens.push(nota);
   }
   return itens;
 }
@@ -249,9 +260,8 @@ async function abrirMenu(sid, x, y) {
 
   const itens = [];
 
-  /* Na sua própria tela, o menu é onde se corrige o que o automático deduziu —
-     ele acerta a janela pelo nome que o compositor dá ao nó de captura, e há
-     ambiente que não dá nome nenhum. */
+  /* Na sua própria tela, o menu é onde se escolhe de qual aplicativo levar o
+     som — e onde se para de levar. */
   if (p.local && somDisponivel && rtc.eu.tela) {
     itens.push(...await itensDeSom());
   }
@@ -524,7 +534,12 @@ function desenharTile(p, streamTela) {
   t.nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
   // sem botão de som, a etiqueta na tela é o único aviso de que ele está indo
   t.marcaSom.hidden = !(p.local ? rtc.eu.somDaTela : rtc.temSom(streamTela));
-  t.marcaSom.title = p.local && alvoDoSom ? `levando ${alvoDoSom}` : 'transmitindo com som';
+  t.marcaSom.title = p.local && alvoDoSom ? `levando o som de ${alvoDoSom}` : 'transmitindo com som';
+  // o som não liga sozinho: o menu é o único lugar que o oferece, então ele
+  // precisa estar dito em algum canto
+  if (p.local && somDisponivel) {
+    t.tile.title = 'clique para ampliar · duplo clique para tela cheia · botão direito para levar o som';
+  }
   t.marcaMudo.hidden = !s?.mudo;
 }
 

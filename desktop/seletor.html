@@ -55,12 +55,11 @@ main { overflow: auto; padding: 16px 20px; }
 .nota { margin: 14px 0 0; color: var(--texto-3); font-size: 12.5px; }
 
 footer {
-  display: flex; align-items: center; gap: 14px; justify-content: space-between;
+  /* flex-end e não space-between: sobrou um filho só depois que a opção de som
+     saiu daqui, e confirmar/cancelar de diálogo moram à direita */
+  display: flex; align-items: center; gap: 14px; justify-content: flex-end;
   padding: 14px 20px; border-top: 1px solid var(--borda);
 }
-label.som { display: flex; align-items: center; gap: 8px; color: var(--texto-2); }
-label.som input { accent-color: var(--acento-claro); width: 16px; height: 16px; }
-label.som.apagado { color: var(--texto-3); }
 .acoes { display: flex; gap: 10px; }
 .botao {
   padding: 9px 16px; border-radius: var(--r-2); border: 1px solid var(--borda);
@@ -92,9 +91,6 @@ label.som.apagado { color: var(--texto-3); }
 </main>
 
 <footer>
-  <label class="som" id="rotulo-som">
-    <input type="checkbox" id="som"> Levar o som do sistema
-  </label>
   <div class="acoes">
     <button class="botao" id="cancelar">Cancelar</button>
     <button class="botao primario" id="confirmar" disabled>Compartilhar</button>
@@ -156,7 +152,8 @@ function desenhar() {
 
 function confirmar() {
   if (!escolhida) return;
-  window.seletor.escolher({ id: escolhida.id, nome: escolhida.nome, som: $('som').checked });
+  // só a tela: o som é escolhido por aplicativo, no menu da sala
+  window.seletor.escolher({ id: escolhida.id, nome: escolhida.nome });
 }
 
 for (const aba of document.querySelectorAll('.aba')) {
@@ -176,21 +173,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter') confirmar();
 });
 
-window.seletor.fontes().then(({ fontes: recebidas, somDoSistema, plataforma }) => {
+window.seletor.fontes().then(({ fontes: recebidas, plataforma }) => {
   fontes = recebidas;
 
   // o botão de confirmar só liga quando há escolha; sem isso ele fica clicável
   // sem fazer nada, que é pior do que estar apagado
   const observar = () => { $('confirmar').disabled = !escolhida; };
   new MutationObserver(observar).observe($('grade'), { childList: true, subtree: true });
-
-  if (!somDoSistema) {
-    $('som').disabled = true;
-    $('rotulo-som').classList.add('apagado');
-    $('rotulo-som').title = plataforma === 'darwin'
-      ? 'No macOS o som do sistema depende de permissões que variam por versão.'
-      : 'No Linux quem controla a captura é o portal do sistema; o som não vem junto.';
-  }
 
   // Wayland não entrega a lista de janelas: vem uma fonte só. Dizer isso é
   // melhor do que mostrar uma aba vazia sem explicação.
