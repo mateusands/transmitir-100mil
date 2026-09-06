@@ -35,10 +35,21 @@ mesma máquina não pegam problema de NAT.
 
 ## O que o PR precisa ter
 
+O GitHub já preenche o corpo com
+[o modelo](.github/pull_request_template.md) — responda o que se aplica e apague
+o resto. As regras por trás dele:
+
 - **Um assunto por PR.** Refatoração misturada com correção dobra o tempo de
   revisão e esconde o que interessa.
-- **Como você validou**, em uma linha. O que foi conferido, em qual navegador,
-  com quantas pessoas.
+- **Título como `tipo(escopo): descrição`** — `fix(audio): separa voz do som da
+  tela`, `feat(palco): foco por clique`.
+- **Resultado, não intenção.** "Testei" não vale nada; "chamada de três no
+  Chrome: imagem e som chegaram, volume separado funcionou" vale. Cole o que
+  você viu.
+- **Diga o que NÃO foi coberto.** Um PR que lista só o que passou é lido como
+  cobertura total. O limite escrito vale mais que o limite escondido.
+- **Fronteira explícita do que não muda.** Sem isso, um PR de correção é lido
+  como refactor.
 - **Mensagem de commit que explica o porquê.** O quê já está no diff. Escreva
   em português, imperativo, primeira linha curta.
 - **Nada de commit em `main` direto.** Trabalhe num branch e abra o PR.
