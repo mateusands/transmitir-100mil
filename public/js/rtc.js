@@ -424,6 +424,15 @@ function publicarEstado() {
 
 export function minhaTela() { return telaStream; }
 
+/**
+ * Como o navegador classifica o que está sendo capturado: 'monitor' é a tela
+ * inteira, 'window' é uma janela. É o que permite ao app de mesa deduzir se o
+ * som deve ser o da máquina toda ou o de um aplicativo só.
+ */
+export function superficieDaTela() {
+  return telaStream?.getVideoTracks()[0]?.getSettings().displaySurface || null;
+}
+
 /* ================= o que tocar de cada peer ================= */
 
 export function streamDaTela(peer) {

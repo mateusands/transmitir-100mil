@@ -215,8 +215,12 @@ isso que o app de mesa faz:
 npm run app
 ```
 
-Ele abre a mesma sala numa janela própria. Depois de compartilhar a tela, o
-**botão direito na sua própria tela** abre as opções de som:
+Ele abre a mesma sala numa janela própria. **O som liga junto com a tela**, e
+acompanha o que você escolheu compartilhar: a tela inteira leva o som da
+máquina, uma janela leva o som do programa dono dela.
+
+Para corrigir o palpite, ou mudar de ideia, o **botão direito na sua própria
+tela** abre as opções:
 
 - **Levar todo o som** — tudo que a máquina tocar, inclusive o que começar
   depois. Menos o que você excluir.
@@ -229,8 +233,9 @@ O áudio **desta chamada nunca entra**, em nenhum dos modos — isso não é op�
 transmissão, com atraso. É o que permite conversar no Discord e mostrar a tela
 por aqui: exclua o Discord uma vez e pronto.
 
-Nada liga sozinho: o som só vai depois de escolhido. E trocar de aplicativo ou
-mexer na exclusão não corta o áudio de quem está assistindo.
+A exclusão vale também para o automático: um programa marcado como "nunca
+levar" não é ligado nem por dedução nossa. E trocar de aplicativo ou mexer na
+exclusão não corta o áudio de quem está assistindo.
 
 Para apontar o app para uma sala já publicada por outra pessoa:
 

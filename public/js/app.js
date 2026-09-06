@@ -110,6 +110,22 @@ async function iniciarTela() {
     return renderizar();
   }
   renderizar();
+  if (somDisponivel) await somAutomatico();
+}
+
+/**
+ * O som acompanha o que foi compartilhado: tela inteira leva tudo, janela leva
+ * o som de quem é dono dela.
+ *
+ * Ligar sozinho é seguro porque a exclusão continua valendo — o áudio desta
+ * chamada nunca entra, e o que você marcou como "nunca levar" também não. Se o
+ * palpite for justamente um app excluído, não ligamos nada: dizer "nunca" uma
+ * vez tem que valer mais que uma dedução nossa.
+ */
+async function somAutomatico() {
+  const alvo = await ponteSom.sugestao(rtc.superficieDaTela());
+  if (!alvo || foraDoSom.has(alvo.nome)) return;
+  await levarSom(alvo.id, alvo.nome);
 }
 
 /**

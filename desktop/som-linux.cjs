@@ -94,9 +94,83 @@ function aplicativos() {
     const nome = no['application.name'] || no['node.name'];
     if (!nome || vistos.has(nome)) continue;
     // id é o próprio nome: é por application.name que o venmic casa os fluxos
-    vistos.set(nome, { id: nome, nome });
+    vistos.set(nome, { id: nome, nome, binario: no['application.process.binary'] || null });
   }
   return [...vistos.values()];
+}
+
+/**
+ * Qual janela o compositor está capturando, segundo o próprio PipeWire.
+ *
+ * O KWin batiza o nó da captura como `kwin-screencast-<id do aplicativo>` — é
+ * a única pista disponível, porque o portal devolve ao navegador uma faixa de
+ * rótulo vazio. Em GNOME ou X11 volta null, e aí o automático cai em "tudo",
+ * que é um palpite honesto: quem compartilha uma janela e recebe o som da
+ * máquina corrige em um clique; quem recebe silêncio não sabe o que houve.
+ */
+function pistaDaCaptura() {
+  return new Promise(resolve => {
+    execFile('pw-dump', { maxBuffer: 8 << 20 }, (erro, saida) => {
+      if (erro) return resolve(null);
+      try {
+        for (const objeto of JSON.parse(saida)) {
+          const props = objeto?.info?.props || {};
+          const nome = String(props['media.name'] || '');
+          if (props['media.class'] === 'Stream/Output/Video' && nome.startsWith('kwin-screencast-')) {
+            return resolve(nome.slice('kwin-screencast-'.length));
+          }
+        }
+      } catch { /* pw-dump devolveu algo que não é JSON */ }
+      resolve(null);
+    });
+  });
+}
+
+/* Saídas de vídeo se chamam assim: DP-1, HDMI-A-1, eDP-1, DVI-D-1, Virtual-1.
+   Quando a pista é uma delas, o que está sendo compartilhado é uma tela
+   inteira — e aí o som é o da máquina toda. */
+const NOME_DE_MONITOR = /^(DP|HDMI-A|HDMI|eDP|LVDS|VGA|DVI(-[ADI])?|Virtual|None)-?\d/i;
+
+/** Casa a pista do compositor ('brave-browser') com um aplicativo tocando ('Brave'). */
+function casar(pista, apps) {
+  const so = t => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const alvo = so(pista.replace(/-(browser|bin|desktop)$/, ''));
+  // menos de três letras casa com quase tudo, e casar errado manda o som errado
+  if (alvo.length < 3) return null;
+  return apps.find(({ nome, binario }) => {
+    for (const candidato of [so(nome), so(binario)]) {
+      if (candidato && candidato.length >= 3 &&
+          (alvo.includes(candidato) || candidato.includes(alvo))) return true;
+    }
+    return false;
+  }) || null;
+}
+
+/**
+ * O que levar, deduzido do que está sendo compartilhado: a tela toda leva o som
+ * da máquina, uma janela leva o som de quem é dono dela.
+ *
+ * NÃO usamos o `displaySurface` do navegador aqui, e isso é medido: o portal do
+ * KDE devolve uma fonte com id de `window:` mesmo quando o escolhido é um
+ * monitor, e o Electron repassa `displaySurface: 'window'`. Quem sabe a verdade
+ * é o compositor — a pista dele para uma tela é o nome da saída (`DP-1`), e
+ * para uma janela é o id do aplicativo.
+ *
+ * A captura demora a aparecer no grafo do PipeWire, então tentamos algumas
+ * vezes: desistir cedo cairia em "tudo" mesmo quando havia janela para achar.
+ */
+async function sugestao() {
+  for (let i = 0; i < 8; i++) {
+    const pista = await pistaDaCaptura();
+    if (pista) {
+      if (NOME_DE_MONITOR.test(pista)) break;               // tela inteira
+      const achado = casar(pista, aplicativos());
+      if (achado) return { id: achado.id, nome: achado.nome };
+      break;   // é uma janela, mas o dono dela não está tocando nada
+    }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return { id: 'tudo', nome: 'tudo' };
 }
 
 function pactl(args) {
@@ -196,4 +270,4 @@ async function desligar() {
    deixa módulo carregado no servidor de áudio. O module-remap-source de antes
    ficava pendurado quando o app morria à força, e por isso precisava dela. */
 
-module.exports = { disponivel, aplicativos, ligar, desligar };
+module.exports = { disponivel, aplicativos, sugestao, ligar, desligar };

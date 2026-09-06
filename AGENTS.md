@@ -83,7 +83,9 @@ comando que interessa.
    `"Audio Service"` do Chromium fica **sempre** de fora — senão as vozes desta
    chamada voltariam para dentro dela, com atraso. Quem conversa por outro
    programa exclui esse também, pelo menu, e a escolha é lembrada.
-   Nada liga sozinho: o som só vai depois de escolhido.
+   O som liga junto com a tela, deduzido do que foi compartilhado — mas a
+   exclusão vale igual, e um aplicativo marcado como "nunca levar" não é ligado
+   nem pela dedução.
    No Windows não existe "tudo menos": o `application-loopback` só sabe incluir
    um processo. Lá é um aplicativo por vez, e o pedido de "tudo" é recusado com
    mensagem em vez de virar captura sem filtro.
@@ -127,6 +129,7 @@ a ferramenta que já usa. O que **precisa** ser verificado numa mudança:
 | som por aplicativo | escolheu um app, **só ele** vai; o app segue audível para quem compartilha; parar a tela para o som junto |
 | som "todo o som" | o excluído no menu não entra (meça: RMS zero), e o excluído é lembrado entre sessões |
 | trocar a regra do som | mudar de app, ou mexer na exclusão, **não** derruba a faixa de quem recebe |
+| começar a compartilhar | o som liga sozinho: tela inteira leva tudo, janela leva o som do dono dela |
 | som por aplicativo | pausar e voltar a tocar no app escolhido — o som volta sozinho, sem reescolher |
 | captura de tela no Linux | no Wayland quem pergunta é o portal; no X11 tem que aparecer o **nosso** seletor, e não compartilhar direto |
 | lançadores | as três opções despacham certo, e por pipe (sem terminal) não travam |
@@ -199,6 +202,15 @@ enxergam na fila um do outro.
   Aplicativo pausado também continua na lista (o nó fica `Corked`, não some).
   Só some da lista quem **fecha** o fluxo de áudio, e aí não há o que listar.
   Não "conserte" isso achando que está quebrado.
+
+- **`displaySurface` mente no KDE.** O portal devolve uma fonte com id
+  `window:` mesmo quando a pessoa escolheu um monitor, e o Electron repassa
+  `displaySurface: 'window'`. Medido: compartilhando uma tela inteira, o nó do
+  compositor era `kwin-screencast-DP-1` — nome de saída de vídeo — enquanto a
+  faixa dizia `window`. Para saber o que está sendo capturado, pergunte ao
+  compositor pelo `pw-dump`, não ao navegador. Nomes de monitor (`DP-1`,
+  `HDMI-A-1`, `eDP-1`) significam tela inteira; qualquer outra coisa é o id de
+  um aplicativo.
 
 #### Limitação conhecida: só a saída padrão
 

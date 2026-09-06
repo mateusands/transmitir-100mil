@@ -103,6 +103,7 @@ async function garantirServidor() {
 /* ================= seletor de tela ================= */
 
 let pendente = null;   // { resolver, janela } enquanto o seletor está aberto
+let ultimaFonte = null; // nome da fonte escolhida, para deduzir de quem é o som
 
 async function listarFontes() {
   const fontes = await desktopCapturer.getSources({
@@ -171,6 +172,7 @@ ipcMain.on('seletor:cancelar', () => responder(null));
    não era para ir. */
 ipcMain.handle('som:disponivel', () => som.disponivel());
 ipcMain.handle('som:aplicativos', () => som.aplicativos());
+ipcMain.handle('som:sugestao', (_e, superficie) => som.sugestao(superficie, ultimaFonte));
 ipcMain.handle('som:ligar', async (evento, alvo, excluidos) => {
   const remetente = evento.sender;
   try {
@@ -230,6 +232,8 @@ app.whenReady().then(async () => {
         types: ['screen', 'window'],
         thumbnailSize: { width: 0, height: 0 },   // ninguém vai desenhar nada
       });
+      // no Wayland o portal não diz o nome; quem deduz é o som-linux, pelo grafo
+      ultimaFonte = fonte?.name || null;
       return callback(fonte ? { video: fonte } : undefined);
     }
 
@@ -237,6 +241,7 @@ app.whenReady().then(async () => {
     const escolha = await abrirSeletor(janela, fontes);
     if (!escolha) return callback();   // cancelou: a página recebe NotAllowedError, que ela já trata
 
+    ultimaFonte = escolha.nome || null;
     /* Só vídeo. O 'loopback' do Chromium existe no Windows, mas é o sistema
        inteiro: levaria o Discord e as vozes da nossa própria chamada de volta
        para dentro da transmissão. O som vai pelo caminho por aplicativo, que a

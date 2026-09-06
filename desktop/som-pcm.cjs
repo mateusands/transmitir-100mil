@@ -151,6 +151,26 @@ function ligarWin(processId, aoReceber) {
   return FORMATO.win32;
 }
 
+/**
+ * O que levar, deduzido do que está sendo compartilhado.
+ *
+ * No macOS a tela inteira leva tudo; para uma janela não temos como saber de
+ * quem ela é sem codigo nativo, e "tudo" e um palpite honesto — som demais se
+ * corrige em um clique, silencio ninguem entende.
+ *
+ * No Windows nao existe "tudo": so da para incluir um processo. Tentamos casar
+ * o titulo da janela compartilhada com a lista de janelas abertas; sem casar,
+ * nao sugerimos nada e a pessoa escolhe no menu.
+ */
+async function sugestao(superficie, nomeDaFonte) {
+  if (process.platform === 'darwin') return { id: 'tudo', nome: 'tudo' };
+  if (process.platform !== 'win32') return null;
+  if (superficie !== 'window' || !nomeDaFonte) return null;
+
+  const achado = (await aplicativosWin()).find(j => j.nome === nomeDaFonte);
+  return achado || null;
+}
+
 /* ================= porta comum ================= */
 
 function aplicativos() {
@@ -177,4 +197,4 @@ async function desligar() {
   try { await parar(); } catch (e) { console.error(e); }
 }
 
-module.exports = { disponivel, aplicativos, ligar, desligar };
+module.exports = { disponivel, aplicativos, sugestao, ligar, desligar };

@@ -27,6 +27,18 @@ async function aplicativos() {
 }
 
 /**
+ * O que levar, deduzido do que esta sendo compartilhado. `null` quando nao ha
+ * palpite — e ai nada liga sozinho.
+ *
+ * @param superficie 'monitor' ou 'window', do displaySurface da faixa de video
+ * @param nomeDaFonte titulo da janela escolhida, onde o seletor sabe dizer
+ */
+async function sugestao(superficie, nomeDaFonte) {
+  try { return await backend.sugestao(superficie, nomeDaFonte); }
+  catch (e) { console.error(e); return null; }
+}
+
+/**
  * Liga o som de um aplicativo.
  *
  * @param id `'tudo'`, ou vindo de aplicativos() — nome do aplicativo no Linux,
@@ -47,4 +59,4 @@ function desligar() {
   return Promise.resolve(backend.desligar()).catch(e => console.error(e));
 }
 
-module.exports = { disponivel, aplicativos, ligar, desligar };
+module.exports = { disponivel, aplicativos, sugestao, ligar, desligar };

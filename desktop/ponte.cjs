@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('transmissor', {
   som: {
     disponivel: () => ipcRenderer.invoke('som:disponivel'),
     aplicativos: () => ipcRenderer.invoke('som:aplicativos'),
+    sugestao: superficie => ipcRenderer.invoke('som:sugestao', superficie),
     ligar: (alvo, excluidos) => ipcRenderer.invoke('som:ligar', alvo, excluidos),
     desligar: () => ipcRenderer.invoke('som:desligar'),
 
