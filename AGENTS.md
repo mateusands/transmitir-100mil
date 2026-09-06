@@ -21,7 +21,6 @@ npm run hospedar     # servidor + túnel do Cloudflare, encerrados juntos
 npm run app          # app de mesa (Electron): seletor próprio e som por aplicativo
 npm run check        # sintaxe de todos os módulos, inclusive desktop/
 npm run gerar-icones # regera public/js/icones.js a partir do lucide-static
-npm run atualizar-venmic # rebaixa e enxuga o addon em desktop/nativo/
 ```
 
 Node.js 22 ou mais novo. `public/` é servido como está, sem empacotador nem
@@ -43,8 +42,7 @@ comando que interessa.
 | `public/js/pcm-worklet.js` | PCM cru do app de mesa vira faixa de áudio (macOS/Windows) |
 | `desktop/main.cjs` | app de mesa: janela, seletor de tela, servidor embutido |
 | `desktop/som.cjs` | porta comum do som por aplicativo; despacha por plataforma |
-| `desktop/som-linux.cjs` | Linux: fonte virtual no PipeWire, via venmic |
-| `desktop/nativo/*.node` | **versionado** — addon do venmic, enxuto; regere com `atualizar-venmic` |
+| `desktop/som-linux.cjs` | Linux: fonte virtual e ligações, pelas ferramentas do PipeWire |
 | `desktop/som-pcm.cjs` | macOS e Windows: blocos de PCM das bibliotecas nativas |
 | `desktop/ponte.cjs` | ponte estreita entre a página e o processo principal |
 | `tools/hospedar.mjs` | sobe servidor + túnel e derruba os dois no `Ctrl+C` |
@@ -74,15 +72,10 @@ comando que interessa.
    `gerar-icones`. Dependência nativa é permitida **desde que traga binário
    pronto** — se um pacote exige compilar na máquina de quem instala, ele está
    fora. Nada de driver de áudio, cabo virtual ou serviço no sistema.
-   O addon do venmic é **versionado** em `desktop/nativo/` em vez de vir do
-   npm: o pacote declara o `cmake-js` como dependência de runtime e ele
-   arrastava 71 pacotes que nunca executam. Passado o `strip`, o binário cai de
-   25 MB para 1,8 MB — quase tudo era `debug_info`.
-   Duas regras que vêm junto: binário que entra no repositório tem a **soma
-   conferida** contra o que o npm publicou (`atualizar-venmic` recusa e sai com
-   erro se não bater), e pacote que embarca executável fica em **versão exata**,
-   sem `^`. Um pacote pequeno com binário dentro não deve subir de versão
-   sozinho num `npm install`.
+   O áudio do Linux **não usa binário de terceiro nenhum**: falamos com o
+   PipeWire pelo `pw-dump`, `pw-loopback` e `pw-link`, que vêm com ele. Se um
+   dia entrar binário aqui, ele vem com a soma conferida e em versão exata,
+   sem `^` — pacote pequeno com executável dentro não sobe de versão sozinho.
 7. **O nosso próprio áudio nunca entra na captura.** Levar o som da máquina
    inteira é opção legítima e existe ("Levar todo o som"), mas o processo
    `"Audio Service"` do Chromium fica **sempre** de fora — senão as vozes desta
@@ -190,9 +183,7 @@ enxergam na fila um do outro.
 - **Leia o rótulo que o sistema registrou; não suponha o que você pediu.** A
   página acha o dispositivo por rótulo. Já aconteceu de a fonte subir com o nome
   certo e a descrição truncada: o módulo dizia sucesso e o erro só aparecia do
-  outro lado, na página, como "não encontrei a fonte". O venmic, por exemplo,
-  batiza o nó de `vencord-screen-share` — isso é detalhe dele, não contrato
-  nosso.
+  outro lado, na página, como "não encontrei a fonte".
 - **PCM de 16 bits não perdoa byte ímpar.** Se um bloco terminar no meio de uma
   amostra e você descartar o byte solto, **todas** as amostras seguintes andam
   meio sample. Não soa como defeito, soa como ruído. Guarde o resto para o
@@ -201,43 +192,24 @@ enxergam na fila um do outro.
   carregando silêncio absoluto. Para dizer que o som chegou, meça — um
   `AnalyserNode` do lado de quem recebe resolve, e é a diferença entre "a faixa
   chegou" e "dá pra ouvir".
-- **O venmic religa sozinho, e isso é medido.** Se o aplicativo escolhido parar
-  e voltar a tocar — inclusive como processo novo —, o som volta sem ninguém
-  reescolher nada: 24,2 dB tocando, 91 dB parado, 24,2 dB de novo ao voltar.
-  Aplicativo pausado também continua na lista (o nó fica `Corked`, não some).
-  Só some da lista quem **fecha** o fluxo de áudio, e aí não há o que listar.
-  Não "conserte" isso achando que está quebrado.
+- **Fluxo que some e volta precisa ser religado, e isso é nosso trabalho.** Um
+  aplicativo pausado mantém o nó (fica `Corked`) e continua na lista; um que
+  fecha o fluxo some do grafo e leva as ligações junto. O vigia de
+  `som-linux.cjs` reconcilia a cada segundo — é ele que faz "todo o som"
+  continuar valendo para o jogo que você abre no meio da conversa. Se o som
+  parar de voltar sozinho, é aí que se olha.
+- **`node.autoconnect=false` na captura não é enfeite.** Sem ele o WirePlumber
+  liga o **microfone** na nossa entrada por conta própria, e a voz de quem
+  compartilha vai junto com o som do jogo. Medido.
 
-- **`displaySurface` mente no KDE.** O portal devolve uma fonte com id
-  `window:` mesmo quando a pessoa escolheu um monitor, e o Electron repassa
-  `displaySurface: 'window'`. Medido: compartilhando uma tela inteira, o nó do
-  compositor era `kwin-screencast-DP-1` — nome de saída de vídeo — enquanto a
-  faixa dizia `window`. Para saber o que está sendo capturado, pergunte ao
-  compositor pelo `pw-dump`, não ao navegador. Nomes de monitor (`DP-1`,
-  `HDMI-A-1`, `eDP-1`) significam tela inteira; qualquer outra coisa é o id de
-  um aplicativo.
+#### Capturamos o fluxo, não a saída
 
-#### Limitação conhecida: só a saída padrão
+Ligamos as portas do **aplicativo**, não o monitor de um alto-falante. Então o
+som vai mesmo quando o programa toca num dispositivo que não é o padrão — jogo
+num fone USB enquanto o padrão é outro, por exemplo. Medido: um tom tocando num
+sink nulo (que não é a saída padrão) foi capturado sem perda nenhuma.
 
-O `link()` do venmic tem três opções que **defaultam para `true`** e que nós não
-passamos:
-
-```cpp
-bool ignore_devices{true};        // Only link against non-device nodes
-bool only_speakers{true};         // Ignore nodes that don't play to speakers
-bool only_default_speakers{true}; // Ignore nodes that don't play to the default speaker
-```
-
-Na prática: capturamos só o que estiver tocando na **saída de áudio padrão**.
-Quem mandar o jogo para um fone que não é o padrão — comum com headset USB —
-vê o aplicativo no menu e o som não vai. É falha silenciosa, o pior tipo.
-
-Fica assim de propósito. Medir isso direito exige uma segunda saída de hardware:
-com um sink nulo o venmic recusa de qualquer jeito, e não dá para distinguir
-"não é a saída padrão" de "sink nulo não conta como alto-falante". Mudar as
-opções sem esse teste trocaria uma limitação conhecida por um comportamento
-desconhecido. Se for mexer, meça antes — e o lugar é `ligar()` em
-`desktop/som-linux.cjs`.
+E sem perda é literal: tom de referência a −30,1 dB, capturado a −30,1 dB.
 
 ### Ao trabalhar neste repositório
 

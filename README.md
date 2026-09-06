@@ -41,15 +41,16 @@ em [O que cada sistema usa](#o-que-cada-sistema-usa).
 ### Linux
 
 ```bash
-sudo pacman -S nodejs npm cloudflared libpulse    # Arch, CachyOS, Manjaro
+sudo pacman -S nodejs npm cloudflared pipewire pipewire-audio   # Arch, CachyOS, Manjaro
 ```
 
 ```bash
-sudo apt install nodejs npm libpulse0 pulseaudio-utils   # Debian, Ubuntu
+sudo apt install nodejs npm pipewire pipewire-audio      # Debian, Ubuntu
 ```
 
-O `libpulse` (e o `pulseaudio-utils`, no Debian) é só para o app de mesa levar
-o som de um aplicativo. Para hospedar no navegador, Node e npm bastam.
+O PipeWire é só para o app de mesa levar o som de um aplicativo — quem já tem
+som funcionando quase certamente já o tem. Para hospedar no navegador, Node e
+npm bastam.
 
 No Debian/Ubuntu o `cloudflared` não está nos repositórios: pegue o `.deb` em
 [github.com/cloudflare/cloudflared/releases](https://github.com/cloudflare/cloudflared/releases)
@@ -247,23 +248,15 @@ TRANSMISSOR_URL=https://algo.trycloudflare.com npm run app
 
 | | como captura | além do Node |
 |---|---|---|
-| Linux | PipeWire, via venmic | PipeWire e `libpulse` — veja abaixo |
+| Linux | PipeWire, pelas ferramentas dele | `pw-dump`, `pw-loopback`, `pw-link` |
 | macOS | Core Audio process taps, via `audiotee` | macOS 14.2 ou mais novo |
 | Windows | WASAPI process loopback, via `application-loopback` | Windows 10 2004 (build 19041), **só x64**, e o VC++ Redistributable |
 
-No **Linux**, o addon é ligado dinamicamente contra bibliotecas do sistema
-(`libpipewire`, `libpulse`, `libdbus`, `libsndfile` e a cadeia de codecs do
-libpulse). Além disso o app chama `pactl` para ler o rótulo da fonte que criou.
-Na prática é um pacote só, porque o `pactl` e a `libpulse.so` vêm juntos:
-
-| | pacote |
-|---|---|
-| Arch, CachyOS, Manjaro | `libpulse` |
-| Debian, Ubuntu | `libpulse0` **e** `pulseaudio-utils` (lá o `pactl` vem separado) |
-
-Quem já tem PipeWire com som funcionando quase certamente tem tudo isso — o
-`pipewire-pulse` depende do `libpulse`. Numa instalação enxuta do Debian, o
-`pactl` é o que costuma faltar.
+No **Linux** não há binário nenhum: falamos com o PipeWire pelas ferramentas
+que vêm com ele — `pw-dump` para ler o grafo, `pw-loopback` para criar a fonte
+e `pw-link` para ligar os aplicativos nela. Os dois primeiros vêm do pacote
+`pipewire`; o `pw-loopback`, do `pipewire-audio`. Quem já tem som funcionando
+com PipeWire tem os três.
 
 No **Windows** não existe o modo "todo o som": a biblioteca disponível só sabe
 capturar **um** aplicativo por vez, e capturar o sistema sem filtro devolveria
@@ -279,15 +272,6 @@ no pacote e usam a API do próprio sistema. O que eles exigem é o
 São as APIs que os próprios sistemas criaram para isto. Os binários vêm
 prontos: `npm install` não compila nada, e nada é instalado fora da pasta do
 projeto — sem driver de áudio virtual, sem serviço, sem cabo virtual.
-
-O addon do Linux é **versionado** em `desktop/nativo/`, em vez de vir do npm.
-O pacote arrastava 71 dependências que nunca executam, e o binário publicado
-tem 25 MB de `debug_info` que não servem para nada em produção. Enxuto, são
-1,8 MB por arquitetura. Para atualizá-lo:
-
-```bash
-npm run atualizar-venmic
-```
 
 **Ressalvas honestas:**
 
@@ -412,18 +396,6 @@ São do [Lucide](https://lucide.dev) (ISC), convertidos para dentro do projeto:
 npm run gerar-icones   # só quando mudar a lista em tools/gerar-icones.mjs
 ```
 
-O addon de áudio do Linux segue a mesma ideia — entra convertido para o
-repositório em vez de ser baixado a cada instalação:
-
-```bash
-npm run atualizar-venmic   # só quando subir a versão em tools/atualizar-venmic.mjs
-```
-
-O pacote é dependência de desenvolvimento e não vai pro navegador — a página
-não busca nada de CDN nenhum, porque o túnel pode ser a única coisa que a rede
-de quem assiste alcança. Emoji não entra na interface: o desenho muda a cada
-sistema, a cor é fixa e não segue o estado do elemento.
-
 ## Estrutura
 
 ```
@@ -434,9 +406,8 @@ public/js/pcm-worklet.js  PCM cru do app de mesa vira faixa de áudio (macOS/Win
 public/js/icones.js     gerado — ícones do Lucide embutidos
 desktop/main.cjs        app de mesa: janela, seletor de tela, servidor embutido
 desktop/som.cjs         porta comum do som por aplicativo, nas três plataformas
-desktop/som-linux.cjs     Linux: fonte virtual no PipeWire, via venmic
+desktop/som-linux.cjs     Linux: fonte virtual e ligações, pelas ferramentas do PipeWire
 desktop/som-pcm.cjs       macOS e Windows: blocos de PCM das bibliotecas nativas
-desktop/nativo/*.node   versionado — addon do venmic, enxuto (1,8 MB por arquitetura)
 desktop/seletor.html    seletor de tela próprio (onde o sistema não tem um)
 desktop/ponte.cjs       ponte estreita entre a página e o processo principal
 tools/hospedar.mjs      servidor + túnel, encerrados juntos

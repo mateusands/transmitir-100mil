@@ -1,9 +1,10 @@
 /* Porta comum do som por aplicativo, nas três plataformas.
  *
- * O que muda entre elas não é a ideia, é a entrega. No Linux o venmic cria uma
- * entrada de áudio de verdade e a página só a captura. No macOS e no Windows
- * não há dispositivo nenhum: vêm blocos de PCM, que o worklet da página vira
- * faixa. Daí para a frente é indistinguível — inclusive para quem recebe.
+ * O que muda entre elas não é a ideia, é a entrega. No Linux criamos uma
+ * entrada de áudio de verdade, com as ferramentas do PipeWire, e a página só a
+ * captura. No macOS e no Windows não há dispositivo nenhum: vêm blocos de PCM,
+ * que o worklet da página vira faixa. Daí para a frente é indistinguível —
+ * inclusive para quem recebe.
  *
  * Em todas, o modelo é o mesmo: vai só o aplicativo escolhido. O que não foi
  * escolhido não entra, e é isso que impede o Discord e as vozes da própria

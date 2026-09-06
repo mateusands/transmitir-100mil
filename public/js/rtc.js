@@ -339,7 +339,7 @@ export function desligarSomDaTela() {
  *
  * Duas esperas embutidas: o navegador só devolve rótulo depois de alguma
  * permissão de áudio concedida, e a lista de dispositivos dele é um cache que
- * demora a notar a fonte recém-criada no sistema — o app já a vê no `pactl`
+ * demora a notar a fonte recém-criada no sistema — o app já a vê no grafo
  * enquanto o Chromium ainda não. Sem o laço, o primeiro compartilhamento falha
  * com "não encontrei a fonte" e o segundo funciona.
  */
