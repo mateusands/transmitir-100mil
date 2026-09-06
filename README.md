@@ -79,6 +79,39 @@ pkill -f tools/hospedar.mjs                  # Linux e macOS
 taskkill /IM cloudflared.exe /F              # Windows
 ```
 
+### Sem instalar nada na máquina
+
+Se você não quer (ou não pode) instalar Node e cloudflared no computador:
+
+```bash
+tools/pasta.sh
+```
+
+Ele confere o que já existe e baixa **para dentro da pasta do projeto** só o que
+faltar — Node em `.node/`, cloudflared em `.bin/`. Nada vai para o sistema: sem
+gerenciador de pacotes, sem PATH global, sem serviço, sem nada em `~/`. Apagar a
+pasta do projeto apaga tudo junto.
+
+```bash
+tools/pasta.sh verificar   # mostra o que seria usado, sem subir a sala
+tools/pasta.sh limpar      # apaga .node/, .bin/ e node_modules/
+```
+
+No Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\pasta.ps1
+```
+
+O download acontece **uma vez**: nas execuções seguintes ele reaproveita o que
+está na pasta. Se a máquina já tem Node 22+ ou cloudflared, ele usa os seus e
+não baixa nada. Custo em disco quando baixa os dois: cerca de 136 MB do Node
+(já sem os cabeçalhos C, que só servem para compilar módulo nativo) e 38 MB do
+cloudflared.
+
+Enquanto roda é um processo em primeiro plano; `Ctrl+C` derruba servidor e túnel
+juntos e não deixa nada ligado. Nenhuma parte disso roda ao ligar o computador.
+
 Só na sua máquina, sem túnel nem link público:
 
 ```bash
@@ -201,6 +234,8 @@ public/js/rtc.js      malha WebRTC (perfect negotiation), separa voz e som da te
 public/js/app.js      interface: palco, fila de pessoas, foco, menu de volume
 public/js/icones.js   gerado — ícones do Lucide embutidos
 tools/hospedar.mjs    servidor + túnel, encerrados juntos
+tools/pasta.sh        modo pasta: Node e cloudflared dentro do projeto (Linux/macOS)
+tools/pasta.ps1       o mesmo no Windows
 tools/gerar-icones.mjs  regera public/js/icones.js
 ```
 
