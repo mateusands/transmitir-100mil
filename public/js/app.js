@@ -538,6 +538,17 @@ async function alternarFora(nome) {
  * O clique alterna a seleção e chama ligar com o conjunto novo
  * SEM fechar o menu e SEM reconstruí-lo, atualizando apenas esta linha.
  */
+/* O nome que o PipeWire dá ao fluxo nem sempre é o nome do programa: o Discord
+   registra o dele como "WEBRTC VoiceEngine". Quem lê o menu precisa reconhecer
+   o programa que quer tirar da transmissão, então o binário entra junto quando
+   o nome não o contém. A identidade continua sendo `nome` — é a chave gravada
+   em foraDoSom e nos escolhidos, e renomear quebraria a escolha já salva. */
+function rotuloDoApp(nome, binario) {
+  if (!binario) return nome;
+  const cru = t => t.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return cru(nome).includes(cru(binario)) ? nome : `${nome} (${binario})`;
+}
+
 function itemAppCaixa(app, apps) {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -546,13 +557,14 @@ function itemAppCaixa(app, apps) {
 
   const marcado = alvoDoSom instanceof Set && alvoDoSom.has(app.nome);
   const bloqueado = foraDoSom.has(app.nome);
+  const rotulo = rotuloDoApp(app.nome, app.binario);
 
   btn.setAttribute('aria-checked', String(marcado));
   btn.disabled = bloqueado;
   if (bloqueado) {
-    btn.title = `${app.nome} (marcado como nunca levar)`;
+    btn.title = `${rotulo} (marcado como nunca levar)`;
   } else {
-    btn.title = marcado ? `Deixar de levar o som de ${app.nome}` : `Levar o som de ${app.nome}`;
+    btn.title = marcado ? `Deixar de levar o som de ${rotulo}` : `Levar o som de ${rotulo}`;
   }
 
   const spanIcone = document.createElement('span');
@@ -560,7 +572,7 @@ function itemAppCaixa(app, apps) {
   spanIcone.append(icone(spanIcone.dataset.icone));
 
   const spanTexto = document.createElement('span');
-  spanTexto.textContent = app.nome;
+  spanTexto.textContent = rotulo;
   btn.append(spanIcone, spanTexto);
 
   btn.addEventListener('click', async e => {
@@ -585,8 +597,8 @@ function itemAppCaixa(app, apps) {
 
     trocarIcone(btn, novoMarcado ? 'check-square' : 'square');
     btn.setAttribute('aria-checked', String(novoMarcado));
-    btn.title = novoMarcado ? `Deixar de levar o som de ${app.nome}` : `Levar o som de ${app.nome}`;
-    spanTexto.textContent = app.nome;
+    btn.title = novoMarcado ? `Deixar de levar o som de ${rotulo}` : `Levar o som de ${rotulo}`;
+    spanTexto.textContent = rotulo;
 
     const ids = idsParaLigar(apps);
     await aplicarAlvo(ids);
@@ -621,11 +633,15 @@ async function itensDeSom() {
      haveria como desfazer depois que o programa fecha. */
   if (alvoDoSom === 'tudo') {
     const nomes = [...new Set([...apps.map(a => a.nome), ...foraDoSom])];
+    /* Quem está excluído sem estar tocando não tem binário para consultar:
+       o rótulo cai no nome gravado, que foi o que a pessoa viu ao excluir. */
+    const binarios = new Map(apps.map(a => [a.nome, a.binario]));
     if (nomes.length) itens.push(document.createElement('hr'));
     for (const nome of nomes) {
       const fora = foraDoSom.has(nome);
+      const rotulo = rotuloDoApp(nome, binarios.get(nome));
       itens.push(itemBotao(fora ? 'volume-2' : 'volume-x',
-        fora ? `Voltar a levar ${nome}` : `Nunca levar ${nome}`,
+        fora ? `Voltar a levar ${rotulo}` : `Nunca levar ${rotulo}`,
         () => alternarFora(nome)));
     }
   }
