@@ -1,6 +1,6 @@
 /* App de mesa: a mesma sala do navegador, com duas coisas que só existem aqui —
- * seletor de tela próprio (onde o sistema não tem um) e o som de um aplicativo
- * escolhido, que nenhum navegador entrega.
+ * seletor de tela próprio (onde o sistema não tem um) e o som dos aplicativos
+ * escolhidos, que nenhum navegador entrega.
  *
  * Uma página web não escolhe o que capturar: o getDisplayMedia sempre abre o
  * diálogo do navegador, e é proposital. Aqui somos o navegador, então o
@@ -179,7 +179,7 @@ ipcMain.handle('som:ligar', async (evento, alvo, excluidos) => {
     /* Onde a entrega é por PCM, os blocos sobem para a janela que pediu — e
        só para ela. Checar isDestroyed a cada bloco porque a captura é do
        sistema: ela não para sozinha quando a janela fecha. */
-    return { ok: true, ...(await som.ligar(alvo, excluidos || [], bytes => {
+    return { ok: true, ...(await som.ligar(alvo, excluidos, bytes => {
       if (!remetente.isDestroyed()) remetente.send('som:pcm', bytes);
     })) };
   } catch (e) { return { ok: false, erro: e.message }; }
@@ -219,6 +219,11 @@ function criarJanela() {
 app.whenReady().then(async () => {
   // sem menu de aplicativo: File/Edit/View não significam nada aqui
   Menu.setApplicationMenu(null);
+
+  /* Sem um handler, o Chromium recusa clipboard-sanitized-write no Electron
+     e o fallback antigo era prompt() — que o Electron não implementa. */
+  session.defaultSession.setPermissionCheckHandler(() => true);
+
   await garantirServidor();
 
   const origem = new URL(ENDERECO).origin;

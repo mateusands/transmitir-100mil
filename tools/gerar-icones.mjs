@@ -53,6 +53,7 @@ const USADOS = [
   'maximize', 'minimize', 'expand',
   'users', 'copy', 'check', 'log-out',
   'monitor-off', 'circle-alert', 'loader-circle', 'speaker', 'settings',
+  'square', 'check-square',
 ];
 
 /* só o miolo interessa: o <svg> de fora é montado no cliente, com o tamanho e

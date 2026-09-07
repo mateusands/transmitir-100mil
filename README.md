@@ -7,7 +7,7 @@ ponto entre os participantes. Nada é gravado, nada fica em disco.
 Uma chamada só, sem código de sala: quem abre o link digita o nome e entra.
 
 Há também um **app de mesa** para quem compartilha, com uma coisa que navegador
-nenhum faz: levar o som de **um aplicativo escolhido**, sem levar a conversa do
+nenhum faz: levar o som dos **aplicativos escolhidos**, sem levar a conversa do
 Discord nem as vozes da própria chamada. Veja
 [App de mesa](#app-de-mesa-levar-o-som-de-um-aplicativo).
 
@@ -219,9 +219,12 @@ máquina, uma janela leva o som do programa dono dela.
 Para corrigir o palpite, ou mudar de ideia, o **botão direito na sua própria
 tela** abre as opções:
 
-- **Levar todo o som** — tudo que a máquina tocar, inclusive o que começar
-  depois. Menos o que você excluir.
-- **Levar só o som de X** — um aplicativo, e mais nada.
+- **Caixas por aplicativo** — marque Brave e o jogo, os dois vão. O menu
+  fica aberto. A escolha é lembrada.
+- **Levar todo o som** — no Linux, tudo que a máquina tocar, inclusive o que
+  começar depois. Menos o que você excluir. No Windows essa opção **não
+  existe**: a API captura um processo por vez, então o caminho é marcar
+  vários.
 - **Nunca levar X** — aparece no modo "todo o som". Marque o programa em que
   você conversa e ele fica de fora, hoje e nas próximas vezes.
 

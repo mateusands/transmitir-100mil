@@ -344,12 +344,24 @@ input:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: -1
   font: inherit;
   font-size: 14px;
   cursor: pointer;
-  transition: background var(--transicao);
+  transition: background var(--transicao), color var(--transicao);
 }
-.menu-item:hover { background: var(--sup-3); }
-.menu-item:active { background: var(--borda); }
+.menu-item:hover:not(:disabled) { background: var(--sup-3); }
+.menu-item:active:not(:disabled) { background: var(--borda); }
 .menu-item:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: -2px; }
+.menu-item:disabled {
+  background: var(--fundo);
+  color: var(--texto-3);
+  cursor: default;
+}
+.menu-item span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .menu-item .icone { width: 17px; height: 17px; color: var(--texto-2); }
+.menu-item:disabled .icone { color: var(--texto-3); }
+.menu-item[aria-checked="true"] .icone { color: var(--acento-claro); }
 
 .menu-slider { padding: 8px 10px 10px; }
 .menu-slider.apagado { opacity: .5; }
