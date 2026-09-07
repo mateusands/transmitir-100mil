@@ -39,10 +39,18 @@ let somCancelar = null;     // encerra a assinatura dos blocos de PCM
    bem menos que isso — e depende dos dois: mais fps custa mais bits pra
    manter a mesma nitidez, daí a tabela em vez de um valor por resolução. O
    custo é upload: cada pessoa assistindo consome até esse tanto de quem
-   transmite (ex.: 6 pessoas em 720p/60fps = 6 * 2,5 Mbps = 15 Mbps). Padrão
+   transmite (ex.: 6 pessoas em 720p/30fps = 6 * 1,5 Mbps = 9 Mbps). Padrão
    é 720p: em teste real com upload comum, 1080p e 1440p ficaram piores que
    720p — o upload não aguenta o bitrate mais alto que essas resoluções
-   pedem, e a imagem sofre mais com isso do que ganharia em nitidez. */
+   pedem, e a imagem sofre mais com isso do que ganharia em nitidez.
+
+   E 30 fps, não 60. Tela não é vídeo: o que se compartilha fica parado a
+   maior parte do tempo e o que importa é o texto legível, não a fluidez.
+   Ninguém do ramo usa 60 aqui — o Discord entrega 30, e a referência técnica
+   de compartilhamento de tela mede a 10. O custo de 60 é dobrado ou
+   sextuplicado em codificação, e aqui isso multiplica de novo por espectador,
+   porque a malha codifica a mesma tela uma vez para cada pessoa. 60 continua
+   na lista para quem mostra jogo e aceita pagar. */
 const RESOLUCOES_TELA = {
   '1440p': { largura: 2560, altura: 1440 },
   '1080p': { largura: 1920, altura: 1080 },
@@ -55,10 +63,10 @@ const BITRATE_TELA = {
   '720p':  { 60: 2_500_000, 30: 1_500_000, 15: 1_000_000 },
 };
 
-// mesma combinação do default de alternarTela/mudarQualidadeTela (720p/60) —
+// mesma combinação do default de alternarTela/mudarQualidadeTela (720p/30) —
 // é o teto que vale quando resolução+fps pedidos não batem com nenhuma linha
 // da tabela, então tem que ser o mesmo padrão, não um valor menor à parte
-const BITRATE_PADRAO = BITRATE_TELA['720p'][60];
+const BITRATE_PADRAO = BITRATE_TELA['720p'][30];
 
 let bitrateTela = BITRATE_PADRAO;
 let escalaTela = 1;
@@ -297,7 +305,7 @@ async function tratarSinal(de, dados) {
  * Devolve { audioDescartado } pra a interface avisar quando o áudio pedido
  * não foi enviado por causa do que está descrito no bloco abaixo.
  */
-export async function alternarTela({ resolucao = '720p', fps = 60 } = {}) {
+export async function alternarTela({ resolucao = '720p', fps = 30 } = {}) {
   if (telaStream) { pararTela(); publicarEstado(); aoMudar(); return null; }
 
   // sem width/height: pedir isso pro getDisplayMedia não é respeitado pela
@@ -358,7 +366,7 @@ export async function alternarTela({ resolucao = '720p', fps = 60 } = {}) {
  * é o único pedido que applyConstraints costuma respeitar de verdade; a
  * resolução é sempre reforçada depois via scaleResolutionDownBy.
  */
-export async function mudarQualidadeTela({ resolucao = '720p', fps = 60 } = {}) {
+export async function mudarQualidadeTela({ resolucao = '720p', fps = 30 } = {}) {
   const track = telaStream?.getVideoTracks()[0];
   if (!track) return;
 

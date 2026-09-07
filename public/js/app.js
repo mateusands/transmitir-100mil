@@ -69,7 +69,7 @@ $('resolucao-tela').addEventListener('change', () => {
   localStorage.setItem('transmissor:resolucao', $('resolucao-tela').value);
 });
 
-$('fps-tela').value = localStorage.getItem('transmissor:fps') || '60';
+$('fps-tela').value = localStorage.getItem('transmissor:fps') || '30';
 $('fps-tela').addEventListener('change', () => {
   localStorage.setItem('transmissor:fps', $('fps-tela').value);
 });
