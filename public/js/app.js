@@ -183,9 +183,129 @@ function fecharPainelQualidade() {
   focoAntesDoPainel = null;
 }
 
+/* ---------- painel de conexão ---------- */
+
+/* Um ícone só, que só muda de cor quando há o que dizer, e um painel que
+   abre no clique. "Está travando" é a reclamação mais comum da chamada, e
+   antes disto a única resposta possível era adivinhar. */
+const painelConexao = $('painel-conexao');
+let atualizaConexao = null;
+
+function linhaConexao(nome, numeros, aviso, ruim) {
+  const linha = document.createElement('div');
+  linha.className = 'conexao-linha';
+
+  const cabeca = document.createElement('div');
+  cabeca.className = 'conexao-cabeca';
+  const quem = document.createElement('span');
+  quem.className = 'conexao-nome';
+  quem.textContent = nome;
+  const nums = document.createElement('span');
+  nums.className = 'conexao-numeros';
+  nums.textContent = numeros;
+  cabeca.append(quem, nums);
+  linha.append(cabeca);
+
+  if (aviso) {
+    const texto = document.createElement('div');
+    texto.className = 'conexao-diagnostico' + (ruim ? ' ruim' : '');
+    texto.textContent = aviso;
+    linha.append(texto);
+  }
+  return linha;
+}
+
+function nota(texto) {
+  const div = document.createElement('div');
+  div.className = 'conexao-nota';
+  div.textContent = texto;
+  return div;
+}
+
+/**
+ * Redesenha a lista e a cor do ícone.
+ *
+ * Roda mesmo com o painel fechado, porque é ela que decide se o ícone fica
+ * vermelho — o aviso precisa aparecer sem ninguém ter clicado em nada.
+ */
+function desenharConexao() {
+  const outros = participantes().filter(p => !p.local);
+  const lista = $('conexao-lista');
+  const filhos = [];
+  let algumRuim = false;
+
+  if (!outros.length) {
+    filhos.push(nota('Só você na chamada.'));
+  } else {
+    for (const p of outros) {
+      if (['failed', 'disconnected'].includes(p.conexao)) {
+        filhos.push(linhaConexao(p.nome, 'sem conexão', 'A conexão com esta pessoa caiu. O navegador tenta refazer sozinho.', true));
+        algumRuim = true;
+        continue;
+      }
+      /* Sem mídia a conexão nem chega a existir — medido: zero transceptores,
+         estado `new`, e o relatório traz só `peer-connection`. Um traço sozinho
+         aqui parece defeito; dizer por que não há número é mais honesto. */
+      if (p.conexao !== 'connected') {
+        filhos.push(linhaConexao(p.nome, 'sem mídia',
+          'A conexão só se forma quando alguém liga o microfone ou compartilha a tela.', false));
+        continue;
+      }
+      const d = conexao.diagnostico(p.sid);
+      if (!d) { filhos.push(linhaConexao(p.nome, 'medindo…', null, false)); continue; }
+
+      const partes = [];
+      if (d.pingMs !== null) partes.push(`${d.pingMs} ms`);
+      if (d.perda !== null) partes.push(`${(d.perda * 100).toFixed(1)}% perda`);
+      /* Só mostramos o diagnóstico quando ele acusa alguém, ou quando a
+         qualidade escolhida deixou de caber no cano. "Conexão saudável" escrito
+         o tempo todo é ruído que ensina a ignorar o painel. */
+      let aviso = d.culpa ? d.texto : null;
+      if (!aviso && d.apertado) aviso = 'A qualidade escolhida está no limite do que o seu envio aguenta.';
+      if (d.culpa) algumRuim = true;
+
+      filhos.push(linhaConexao(p.nome, partes.join(' · ') || '—', aviso, !!d.culpa));
+    }
+  }
+
+  // com o painel fechado só a cor do ícone importa; montar a lista seria
+  // trabalho jogado fora a cada quadro de renderização
+  if (!painelConexao.hidden) lista.replaceChildren(...filhos);
+  $('btn-conexao').dataset.estado = algumRuim ? 'ruim' : 'ok';
+}
+
+function abrirPainelConexao(ancora) {
+  focoAntesDoPainel = document.activeElement;
+  desenharConexao();
+  painelConexao.hidden = false;
+  ancora.setAttribute('aria-expanded', 'true');
+  const a = ancora.getBoundingClientRect();
+  const p = painelConexao.getBoundingClientRect();
+  painelConexao.style.left = Math.max(8, Math.min(a.left, innerWidth - p.width - 8)) + 'px';
+  painelConexao.style.top = (a.bottom + 8) + 'px';
+  // os números mudam sozinhos: painel aberto que congela parece defeito
+  atualizaConexao = setInterval(desenharConexao, 2000);
+  desenharConexao();   // com o painel já visível, agora a lista é montada
+}
+
+function fecharPainelConexao() {
+  if (painelConexao.hidden) return;
+  painelConexao.hidden = true;
+  $('btn-conexao').setAttribute('aria-expanded', 'false');
+  if (atualizaConexao) { clearInterval(atualizaConexao); atualizaConexao = null; }
+  if (focoAntesDoPainel && document.contains(focoAntesDoPainel)) focoAntesDoPainel.focus();
+  focoAntesDoPainel = null;
+}
+
+$('btn-conexao').addEventListener('click', () => {
+  if (painelConexao.hidden) abrirPainelConexao($('btn-conexao'));
+  else fecharPainelConexao();
+});
+
 function fecharPopups() {
   fecharMenu();
   fecharPainelQualidade();
+  fecharPainelConexao();
 }
 
 $('btn-tela').addEventListener('click', () => compartilhar());
@@ -714,6 +834,10 @@ document.addEventListener('click', e => {
     && !e.target.closest('#btn-tela, #btn-qualidade, #vazio-compartilhar')) {
     fecharPainelQualidade();
   }
+  if (!painelConexao.hidden && !painelConexao.contains(e.target)
+    && !e.target.closest('#btn-conexao')) {
+    fecharPainelConexao();
+  }
 });
 palco.addEventListener('scroll', fecharPopups);
 window.addEventListener('resize', fecharPopups);
@@ -773,6 +897,7 @@ function renderizar() {
   // se a tela caiu (ex.: botão nativo do navegador) com o painel de ajuste
   // ao vivo aberto, ele não faz mais sentido — fecha
   if (!painelQualidade.hidden && !rtc.eu.tela) fecharPainelQualidade();
+  desenharConexao();
   atualizarBotao($('btn-mic'), rtc.eu.mic, {
     ligado: ['mic', 'Desligar microfone'],
     desligado: ['mic-off', 'Ligar microfone'],
