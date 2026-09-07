@@ -7,13 +7,14 @@
    de quem só está falando. */
 
 import * as rtc from './rtc.js';
+import * as conexao from './conexao.js';
 import { icone } from './icones.js';
 
 // exposto só pra depurar pelo console do navegador (ver resolução/bitrate
 // reais saindo com stats.getStats()) — nada aqui é usado pela interface.
 // Só em localhost: quem assiste pelo link público não precisa disso, e
 // chrome://webrtc-internals já cobre o mesmo debug de qualquer lugar.
-if (location.hostname === 'localhost') window.__rtc = rtc;
+if (location.hostname === 'localhost') { window.__rtc = rtc; window.__conexao = conexao; }
 
 const $ = id => document.getElementById(id);
 
@@ -102,6 +103,9 @@ $('form-entrar').addEventListener('submit', async e => {
     socket.on('connect', () => { if (entrou) rtc.entrar(SALA, nomeAtual); });
 
     rtc.entrar(SALA, nomeAtual);
+    /* Começa a medir junto com a chamada: o diagnóstico compara amostras, e
+       quem só liga a medição depois que alguém reclama já perdeu o antes. */
+    conexao.observar();
   } catch (e) {
     console.error(e);
     voltarParaEntrada();
@@ -997,6 +1001,7 @@ function inicial(nome) {
 }
 
 function voltarParaEntrada() {
+  conexao.parar();
   fecharMenu();
   focado = null;
   entrou = false;
