@@ -9,6 +9,12 @@
 import * as rtc from './rtc.js';
 import { icone } from './icones.js';
 
+// exposto só pra depurar pelo console do navegador (ver resolução/bitrate
+// reais saindo com stats.getStats()) — nada aqui é usado pela interface.
+// Só em localhost: quem assiste pelo link público não precisa disso, e
+// chrome://webrtc-internals já cobre o mesmo debug de qualquer lugar.
+if (location.hostname === 'localhost') window.__rtc = rtc;
+
 const $ = id => document.getElementById(id);
 
 const telaEntrada = $('entrada');
@@ -52,6 +58,16 @@ pintarIcones(document);
 
 $('nome').value = localStorage.getItem('transmissor:nome') || '';
 
+$('resolucao-tela').value = localStorage.getItem('transmissor:resolucao') || '720p';
+$('resolucao-tela').addEventListener('change', () => {
+  localStorage.setItem('transmissor:resolucao', $('resolucao-tela').value);
+});
+
+$('fps-tela').value = localStorage.getItem('transmissor:fps') || '60';
+$('fps-tela').addEventListener('change', () => {
+  localStorage.setItem('transmissor:fps', $('fps-tela').value);
+});
+
 $('form-entrar').addEventListener('submit', async e => {
   e.preventDefault();
   nomeAtual = $('nome').value.trim();
@@ -93,7 +109,17 @@ $('form-entrar').addEventListener('submit', async e => {
 /* ================= barra ================= */
 
 async function compartilhar() {
-  try { await rtc.alternarTela(); }
+  try {
+    const resultado = await rtc.alternarTela({
+      resolucao: $('resolucao-tela').value,
+      fps: Number($('fps-tela').value),
+    });
+    if (resultado?.audioDescartado) {
+      avisar('sala', 'O áudio do sistema não foi enviado: em janela ou tela '
+        + 'inteira ele traria o som de outros apps junto. Pra levar som, '
+        + 'compartilhe uma aba do Chrome.');
+    }
+  }
   catch (e) {
     // cancelar o diálogo do navegador é rotina, não erro
     if (e?.name !== 'NotAllowedError') avisar('sala', 'Não consegui capturar a tela: ' + e.message);
@@ -101,8 +127,55 @@ async function compartilhar() {
   renderizar();
 }
 
-$('btn-tela').addEventListener('click', compartilhar);
-$('vazio-compartilhar').addEventListener('click', compartilhar);
+/* O painel só serve pra ajustar ao vivo, enquanto já está compartilhando —
+   via applyConstraints, sem reabrir o diálogo do navegador nem cair a
+   chamada. Compartilhar pela primeira vez não passa por aqui: vai direto com
+   o que estiver salvo no localStorage, porque um painel antes de começar
+   empilhava dois botões "Compartilhar tela" acentuados, um em cima do outro,
+   no estado vazio — o mesmo clique virava dois pra todo mundo, mesmo quem
+   nunca ia mexer em resolução. Quem quer outra qualidade ajusta uma vez pela
+   engrenagem e a preferência fica. */
+const painelQualidade = $('painel-qualidade');
+let focoAntesDoPainel = null;
+
+function abrirPainelQualidade(ancora) {
+  focoAntesDoPainel = document.activeElement;
+  painelQualidade.hidden = false;
+  const a = ancora.getBoundingClientRect();
+  const p = painelQualidade.getBoundingClientRect();
+  painelQualidade.style.left = Math.max(8, Math.min(a.left, innerWidth - p.width - 8)) + 'px';
+  painelQualidade.style.top = Math.max(8, a.top - p.height - 8) + 'px';
+  $('resolucao-tela').focus();
+}
+
+function fecharPainelQualidade() {
+  if (painelQualidade.hidden) return;
+  painelQualidade.hidden = true;
+  // devolve o foco pra quem abriu — sem isso ele fica preso no painel que sumiu
+  if (focoAntesDoPainel && document.contains(focoAntesDoPainel)) focoAntesDoPainel.focus();
+  focoAntesDoPainel = null;
+}
+
+function fecharPopups() {
+  fecharMenu();
+  fecharPainelQualidade();
+}
+
+$('btn-tela').addEventListener('click', () => compartilhar());
+$('btn-qualidade').addEventListener('click', () => abrirPainelQualidade($('btn-qualidade')));
+$('vazio-compartilhar').addEventListener('click', () => compartilhar());
+
+$('painel-compartilhar').addEventListener('click', async () => {
+  fecharPainelQualidade();
+  try {
+    await rtc.mudarQualidadeTela({
+      resolucao: $('resolucao-tela').value,
+      fps: Number($('fps-tela').value),
+    });
+  } catch (e) {
+    avisar('sala', 'Não consegui aplicar a qualidade: ' + e.message);
+  }
+});
 
 $('btn-mic').addEventListener('click', async () => {
   try { await rtc.alternarMic(); }
@@ -161,7 +234,7 @@ function telaCheia(sid) {
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  fecharMenu();
+  fecharPopups();
   if (focado && !document.fullscreenElement) { focado = null; renderizar(); }
 });
 
@@ -279,10 +352,14 @@ function itemSlider(rotulo, valor, aoMudar, desativado) {
 
 document.addEventListener('click', e => {
   if (menuAberto && !menu.hidden && !menu.contains(e.target)) fecharMenu();
+  if (!painelQualidade.hidden && !painelQualidade.contains(e.target)
+    && !e.target.closest('#btn-tela, #btn-qualidade, #vazio-compartilhar')) {
+    fecharPainelQualidade();
+  }
 });
-palco.addEventListener('scroll', fecharMenu);
-window.addEventListener('resize', fecharMenu);
-window.addEventListener('blur', fecharMenu);
+palco.addEventListener('scroll', fecharPopups);
+window.addEventListener('resize', fecharPopups);
+window.addEventListener('blur', fecharPopups);
 
 /* ================= desenho ================= */
 
@@ -330,6 +407,10 @@ function renderizar() {
     ligado: ['screen-share-off', 'Parar de compartilhar'],
     desligado: ['screen-share', 'Compartilhar tela'],
   });
+  $('btn-qualidade').hidden = !rtc.eu.tela;
+  // se a tela caiu (ex.: botão nativo do navegador) com o painel de ajuste
+  // ao vivo aberto, ele não faz mais sentido — fecha
+  if (!painelQualidade.hidden && !rtc.eu.tela) fecharPainelQualidade();
   atualizarBotao($('btn-mic'), rtc.eu.mic, {
     ligado: ['mic', 'Desligar microfone'],
     desligado: ['mic-off', 'Ligar microfone'],
@@ -452,6 +533,10 @@ function criarTile(p) {
   video.autoplay = true;
   video.playsInline = true;
   video.muted = true;   // o som sai pelos <audio> da pastilha; aqui daria eco
+  // só a própria tela: se a janela compartilhada mudar de tamanho, a escala
+  // de saída precisa acompanhar — MediaStreamTrack não avisa disso, só o
+  // <video> que já está exibindo o preview local
+  if (p.local) video.addEventListener('resize', () => rtc.recalcularEscalaTela());
   tile.append(video);
 
   const rotulo = document.createElement('div');
