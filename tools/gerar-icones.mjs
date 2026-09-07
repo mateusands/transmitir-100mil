@@ -52,7 +52,7 @@ const USADOS = [
   'volume-2', 'volume-x',
   'maximize', 'minimize', 'expand',
   'users', 'copy', 'check', 'log-out',
-  'monitor-off', 'circle-alert', 'loader-circle', 'speaker',
+  'monitor-off', 'circle-alert', 'loader-circle', 'speaker', 'settings',
 ];
 
 /* só o miolo interessa: o <svg> de fora é montado no cliente, com o tamanho e

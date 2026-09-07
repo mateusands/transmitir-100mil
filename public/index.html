@@ -49,7 +49,7 @@
     <div id="estado-vazio" class="estado" hidden>
       <span class="estado-icone" data-icone="monitor-off"></span>
       <h2>Ninguém está compartilhando</h2>
-      <p>Mostre o que está na sua tela — e escolha no diálogo do navegador se o som vai junto.</p>
+      <p>Mostre o que está na sua tela. Áudio só vai junto se você escolher uma aba do Chrome no diálogo — em janela ou tela inteira o som seria do sistema todo, então não vai.</p>
       <button id="vazio-compartilhar" type="button" class="botao botao-primario">
         <span data-icone="screen-share"></span><span class="rotulo-botao">Compartilhar tela</span>
       </button>
@@ -74,6 +74,9 @@
     <button id="btn-tela" type="button" class="botao botao-secundario">
       <span data-icone="screen-share"></span><span class="rotulo-botao">Compartilhar tela</span>
     </button>
+    <button id="btn-qualidade" type="button" class="botao botao-secundario" title="Ajustar qualidade" hidden>
+      <span data-icone="settings"></span><span class="rotulo-botao">Qualidade</span>
+    </button>
     <button id="btn-mic" type="button" class="botao botao-secundario">
       <span data-icone="mic-off"></span><span class="rotulo-botao">Ligar microfone</span>
     </button>
@@ -84,6 +87,29 @@
   </footer>
 
   <div id="menu" class="menu" role="menu" hidden></div>
+  <div id="painel-qualidade" class="menu" role="dialog" aria-label="qualidade da transmissão" hidden>
+    <div class="menu-nome">Qualidade da tela</div>
+    <div class="menu-campo">
+      <label for="resolucao-tela">Resolução</label>
+      <select id="resolucao-tela" class="qualidade">
+        <option value="1440p">1440p</option>
+        <option value="1080p">1080p</option>
+        <option value="720p" selected>720p</option>
+      </select>
+    </div>
+    <div class="menu-campo">
+      <label for="fps-tela">Quadros por segundo</label>
+      <select id="fps-tela" class="qualidade">
+        <option value="60" selected>60 fps</option>
+        <option value="30">30 fps</option>
+        <option value="15">15 fps</option>
+      </select>
+    </div>
+    <hr>
+    <button id="painel-compartilhar" type="button" class="botao botao-primario menu-acao">
+      <span data-icone="check"></span><span class="rotulo-botao">Aplicar</span>
+    </button>
+  </div>
   <button id="ativar-som" type="button" class="botao botao-primario ativar-som" hidden>
     <span data-icone="volume-2"></span><span class="rotulo-botao">Clique para ativar o som</span>
   </button>

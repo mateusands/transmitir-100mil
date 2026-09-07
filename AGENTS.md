@@ -175,6 +175,14 @@ enxergam na fila um do outro.
   mas revalida).
 - **`getDisplayMedia` só existe em contexto seguro.** Pelo túnel funciona; por
   `http://<ip-da-lan>:3000`, não.
+- **O áudio do `getDisplayMedia` só é "recortado" pro que está na tela quando
+  a pessoa compartilha uma aba do Chrome.** Em janela ou tela inteira, o áudio
+  que o Chromium oferece é o do sistema inteiro — não existe opção de API pra
+  "só o som deste app" fora de aba. `alternarTela` em `rtc.js` descarta esse
+  áudio quando `displaySurface !== 'browser'`, pra ninguém ouvir o que não
+  devia. Isolar por aplicativo de verdade exige suporte do sistema operacional,
+  e é exatamente o que o **app de mesa** faz — veja a seção abaixo. No
+  navegador, descartar continua sendo a única saída honesta.
 
 ### App de mesa e áudio
 
