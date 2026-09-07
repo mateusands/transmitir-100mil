@@ -1,7 +1,8 @@
 # Contribuir
 
 Obrigado por olhar o código. Este é um projeto pequeno e quer continuar assim:
-uma chamada que sobe num comando, sem banco, sem build, sem framework.
+uma chamada que sobe num comando, sem banco, sem framework e sem empacotador —
+o que está em `public/` é servido exatamente como você escreveu.
 
 ## Começar
 
@@ -16,7 +17,17 @@ Abra `http://localhost:3000` em duas abas para ver uma chamada de duas pessoas.
 Para exercitar o caminho real — com https e outra máquina — use
 `npm run hospedar`, que publica um túnel do Cloudflare.
 
-Requisitos: Node.js 22 ou mais novo. Nada além disso — não há etapa de build.
+Mexeu em som por aplicativo ou no seletor de tela? Isso só existe no app de
+mesa, e o navegador não alcança:
+
+```bash
+npm run app
+```
+
+Requisitos: Node.js 22 ou mais novo. O `npm install` traz três pacotes —
+`express`, `socket.io` e `electron` — e não compila nada: **não há biblioteca de
+terceiro para áudio**. No Linux o som sai das ferramentas do próprio PipeWire;
+no Windows, de binários compilados do nosso fonte em `desktop/nativo/win/`.
 
 ## Antes de abrir um PR
 
@@ -70,7 +81,16 @@ O guia completo está em [AGENTS.md](AGENTS.md). O resumo:
 
 Não por ser ruim, mas por ser outro projeto:
 
-- Framework de interface, empacotador ou etapa de build.
+- Framework de interface, empacotador ou transpilador para o que é servido.
+- **Binário de terceiro** para áudio. Já tivemos três e saíram todos: código
+  compilado por outra pessoa, que a gente não consegue conferir contra o fonte,
+  rodando com os privilégios de quem usa. O que entra é fonte nosso, que
+  qualquer um recompila com um comando, ou ferramenta que já vem com o sistema.
+- Dependência nativa que **exija compilar na máquina de quem instala**. Driver
+  de áudio, cabo virtual ou serviço no sistema, também não.
+- Captura do som do sistema inteiro. Ela leva o Discord e as vozes da própria
+  chamada de volta para a transmissão; o modelo é levar só o aplicativo
+  escolhido (invariante 7 do [AGENTS.md](AGENTS.md)).
 - Dependência carregada de CDN. A página precisa funcionar quando o túnel é a
   única coisa que a rede de quem assiste alcança.
 - Qualquer coisa que faça a mídia passar pelo servidor (gravação, proxy de

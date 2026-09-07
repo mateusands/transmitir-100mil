@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Compartilhar tela</title>
+<style>
+/* mesmos tokens da sala — quando algum mudar lá, muda aqui junto */
+:root {
+  --fundo: #0b0d10; --sup-1: #14171c; --sup-2: #1b1f26; --sup-3: #232830;
+  --borda: #262c35; --borda-forte: #39414d;
+  --texto: #e8eaee; --texto-2: #a8b0bd; --texto-3: #7c8593;
+  --acento: #3d6fd6; --acento-claro: #4d80e8; --acento-escuro: #335fba;
+  --sobre-acento: #fff; --r-1: 6px; --r-2: 10px; --r-3: 14px;
+  --transicao: 120ms ease;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr auto;
+  background: var(--fundo); color: var(--texto);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header { padding: 16px 20px 12px; border-bottom: 1px solid var(--borda); }
+h1 { margin: 0; font-size: 16px; }
+.abas { display: flex; gap: 6px; margin-top: 12px; }
+.aba {
+  padding: 7px 14px; border-radius: 999px; border: 1px solid var(--borda);
+  background: var(--sup-1); color: var(--texto-2); font: inherit; cursor: pointer;
+  transition: background var(--transicao), color var(--transicao), border-color var(--transicao);
+}
+.aba:hover { background: var(--sup-2); color: var(--texto); }
+.aba:active { background: var(--sup-3); }
+.aba:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: 2px; }
+.aba[aria-selected="true"] { background: var(--sup-3); border-color: var(--acento); color: var(--texto); }
+
+main { overflow: auto; padding: 16px 20px; }
+.grade { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+
+.fonte {
+  display: grid; gap: 8px; padding: 8px; text-align: left;
+  border: 1px solid var(--borda); border-radius: var(--r-3);
+  background: var(--sup-1); color: var(--texto); font: inherit; cursor: pointer;
+  transition: background var(--transicao), border-color var(--transicao);
+}
+.fonte:hover { background: var(--sup-2); border-color: var(--borda-forte); }
+.fonte:active { background: var(--sup-3); }
+.fonte:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: 2px; }
+.fonte[aria-pressed="true"] { border-color: var(--acento); background: var(--sup-2); }
+.fonte img.tira { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--r-1); background: #000; display: block; }
+.fonte .rotulo { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.fonte .rotulo img { width: 16px; height: 16px; }
+.fonte .rotulo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+
+.vazio { color: var(--texto-2); text-align: center; padding: 48px 24px; }
+.nota { margin: 14px 0 0; color: var(--texto-3); font-size: 12.5px; }
+
+footer {
+  /* flex-end e não space-between: sobrou um filho só depois que a opção de som
+     saiu daqui, e confirmar/cancelar de diálogo moram à direita */
+  display: flex; align-items: center; gap: 14px; justify-content: flex-end;
+  padding: 14px 20px; border-top: 1px solid var(--borda);
+}
+.acoes { display: flex; gap: 10px; }
+.botao {
+  padding: 9px 16px; border-radius: var(--r-2); border: 1px solid var(--borda);
+  background: var(--sup-1); color: var(--texto); font: inherit; font-weight: 500; cursor: pointer;
+  transition: background var(--transicao), border-color var(--transicao);
+}
+.botao:hover { background: var(--sup-2); border-color: var(--borda-forte); }
+.botao:active { background: var(--sup-3); }
+.botao:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: 2px; }
+.botao.primario { background: var(--acento); border-color: var(--acento); color: var(--sobre-acento); }
+.botao.primario:hover { background: var(--acento-claro); border-color: var(--acento-claro); }
+.botao.primario:active { background: var(--acento-escuro); border-color: var(--acento-escuro); }
+.botao:disabled { background: var(--fundo); border-color: var(--borda); color: var(--texto-3); cursor: default; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Compartilhar tela</h1>
+  <div class="abas" role="tablist">
+    <button class="aba" role="tab" data-tipo="tela" aria-selected="true">Tela inteira</button>
+    <button class="aba" role="tab" data-tipo="janela" aria-selected="false">Aplicativos</button>
+  </div>
+</header>
+
+<main>
+  <div id="grade" class="grade"></div>
+  <p id="nota" class="nota" hidden></p>
+</main>
+
+<footer>
+  <div class="acoes">
+    <button class="botao" id="cancelar">Cancelar</button>
+    <button class="botao primario" id="confirmar" disabled>Compartilhar</button>
+  </div>
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let fontes = [];
+let tipoAtivo = 'tela';
+let escolhida = null;
+
+function desenhar() {
+  const lista = fontes.filter(f => f.tipo === tipoAtivo);
+  $('grade').replaceChildren();
+
+  if (!lista.length) {
+    const vazio = document.createElement('p');
+    vazio.className = 'vazio';
+    vazio.textContent = tipoAtivo === 'janela'
+      ? 'Nenhuma janela para listar aqui.'
+      : 'Nenhuma tela encontrada.';
+    $('grade').append(vazio);
+    return;
+  }
+
+  for (const f of lista) {
+    const botao = document.createElement('button');
+    botao.className = 'fonte';
+    botao.setAttribute('aria-pressed', String(escolhida?.id === f.id));
+
+    if (f.miniatura) {
+      const img = document.createElement('img');
+      img.className = 'tira';
+      img.src = f.miniatura;
+      img.alt = '';
+      botao.append(img);
+    }
+
+    const rotulo = document.createElement('div');
+    rotulo.className = 'rotulo';
+    if (f.icone) {
+      const ico = document.createElement('img');
+      ico.src = f.icone;
+      ico.alt = '';
+      rotulo.append(ico);
+    }
+    const nome = document.createElement('span');
+    nome.textContent = f.nome;
+    nome.title = f.nome;
+    rotulo.append(nome);
+    botao.append(rotulo);
+
+    botao.addEventListener('click', () => { escolhida = f; desenhar(); });
+    botao.addEventListener('dblclick', confirmar);
+    $('grade').append(botao);
+  }
+}
+
+function confirmar() {
+  if (!escolhida) return;
+  // só a tela: o som é escolhido por aplicativo, no menu da sala
+  window.seletor.escolher({ id: escolhida.id, nome: escolhida.nome });
+}
+
+for (const aba of document.querySelectorAll('.aba')) {
+  aba.addEventListener('click', () => {
+    tipoAtivo = aba.dataset.tipo;
+    for (const a of document.querySelectorAll('.aba')) {
+      a.setAttribute('aria-selected', String(a === aba));
+    }
+    desenhar();
+  });
+}
+
+$('confirmar').addEventListener('click', confirmar);
+$('cancelar').addEventListener('click', () => window.seletor.cancelar());
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') window.seletor.cancelar();
+  if (e.key === 'Enter') confirmar();
+});
+
+window.seletor.fontes().then(({ fontes: recebidas, plataforma }) => {
+  fontes = recebidas;
+
+  // o botão de confirmar só liga quando há escolha; sem isso ele fica clicável
+  // sem fazer nada, que é pior do que estar apagado
+  const observar = () => { $('confirmar').disabled = !escolhida; };
+  new MutationObserver(observar).observe($('grade'), { childList: true, subtree: true });
+
+  // Wayland não entrega a lista de janelas: vem uma fonte só. Dizer isso é
+  // melhor do que mostrar uma aba vazia sem explicação.
+  const semJanelas = !fontes.some(f => f.tipo === 'janela' && f.nome && f.nome !== 'A tela toda');
+  if (semJanelas && plataforma === 'linux') {
+    $('nota').hidden = false;
+    $('nota').textContent = 'Neste sistema (Wayland) quem lista as janelas é o portal do próprio ambiente, '
+      + 'não este aplicativo — por isso aparece só a tela inteira.';
+  }
+
+  desenhar();
+  observar();
+});
+</script>
+</body>
+</html>

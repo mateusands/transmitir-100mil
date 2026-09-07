@@ -1,4 +1,8 @@
 node_modules/
+
+# modo pasta: ferramentas baixadas para dentro do projeto
+.node/
+.bin/
 npm-debug.log*
 .env
 

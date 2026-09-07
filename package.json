@@ -9,18 +9,21 @@
     "url": "https://github.com/mateusands/transmitir-100mil.git"
   },
   "type": "module",
+  "main": "desktop/main.cjs",
   "scripts": {
     "start": "node server/index.js",
     "hospedar": "node tools/hospedar.mjs",
-    "check": "node --check server/index.js && node --check tools/hospedar.mjs && node --check tools/gerar-icones.mjs && node --check public/js/app.js && node --check public/js/rtc.js && node --check public/js/icones.js",
-    "gerar-icones": "node tools/gerar-icones.mjs"
+    "check": "node --check server/index.js && node --check tools/hospedar.mjs && node --check tools/gerar-icones.mjs && node --check public/js/app.js && node --check public/js/rtc.js && node --check public/js/icones.js && node --check public/js/pcm-worklet.js && node --check desktop/main.cjs && node --check desktop/ponte.cjs && node --check desktop/preload.cjs && node --check desktop/som.cjs && node --check desktop/som-linux.cjs && node --check desktop/som-pcm.cjs && node --check tools/compilar-windows.mjs",
+    "gerar-icones": "node tools/gerar-icones.mjs",
+    "app": "electron .",
+    "compilar-windows": "node tools/compilar-windows.mjs"
   },
   "dependencies": {
     "express": "^5.2.1",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "lucide-static": "^1.41.0"
+    "electron": "^44.2.0"
   },
   "engines": {
     "node": ">=22"

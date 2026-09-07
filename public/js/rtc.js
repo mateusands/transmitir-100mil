@@ -16,10 +16,13 @@ let aoMudar = () => {};
 /** sid -> { sid, nome, pc, polite, midias, meta, tela, mic, conexao } */
 export const peers = new Map();
 
-export const eu = { sid: null, nome: '', sala: '', tela: false, mic: false };
+export const eu = { sid: null, nome: '', sala: '', tela: false, mic: false, somDaTela: false };
 
-let telaStream = null;  // vídeo da tela (+ áudio da aba/sistema, se houver)
-let micStream = null;   // áudio do microfone
+let telaStream = null;      // vídeo da tela (+ áudio da aba/sistema, se houver)
+let micStream = null;       // áudio do microfone
+let somTelaStream = null;   // áudio do aplicativo compartilhado, vindo do app de mesa
+let somContexto = null;     // AudioContext do caminho PCM (macOS e Windows)
+let somCancelar = null;     // encerra a assinatura dos blocos de PCM
 
 /* Qualidade da tela: quem compartilha escolhe resolução e fps por separado
    antes de começar. Duas peças, cada uma resolvendo um problema diferente:
@@ -213,6 +216,19 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
 
     let midia = peer.midias.get(origem.id);
     if (!midia) { midia = new MediaStream(); peer.midias.set(origem.id, midia); }
+
+    /* Faixa que o outro lado removeu não termina: o Chrome a deixa no stream
+       marcada como `muted`, e o nosso `onended` nunca dispara. Quem parava e
+       voltava a levar o som acabava com duas faixas de áudio — a velha muda na
+       frente da nova. E o <audio> toca a PRIMEIRA, então saía silêncio até
+       parar de compartilhar e começar de novo.
+       Só limpamos no momento em que chega uma substituta, então uma faixa
+       muda por soluço de rede não é descartada à toa. */
+    if (track.kind === 'audio') {
+      for (const velha of midia.getAudioTracks()) {
+        if (velha.readyState === 'ended' || velha.muted) midia.removeTrack(velha);
+      }
+    }
     midia.addTrack(track);
 
     track.onended = () => {
@@ -322,6 +338,13 @@ export async function alternarTela({ resolucao = '720p', fps = 60 } = {}) {
     if (telaStream) { pararTela(); publicarEstado(); aoMudar(); }
   });
 
+  /* No Linux a captura vem do PipeWire e a faixa nasce `muted`, só desmutando
+     quando o primeiro quadro chega. Sem escutar isso, a tela era compartilhada
+     de verdade e a interface continuava mostrando "ninguém está compartilhando"
+     — a faixa mudava de estado e ninguém redesenhava. */
+  track.addEventListener('mute', aoMudar);
+  track.addEventListener('unmute', aoMudar);
+
   adicionar(telaStream);
   eu.tela = true;
   publicarEstado();
@@ -349,6 +372,135 @@ export async function mudarQualidadeTela({ resolucao = '720p', fps = 60 } = {}) 
     const sender = peer.pc.getSenders().find(s => s.track === track);
     if (sender) ajustarQualidadeTela(sender);
   }
+}
+
+/**
+ * Caminho do Linux: o app criou uma entrada de áudio de verdade, e a página só
+ * a captura. Recebe o rótulo porque o id do dispositivo só existe depois que o
+ * navegador enumera.
+ */
+export async function ligarSomDaTela(rotulo) {
+  if (!telaStream) throw new Error('Compartilhe a tela antes de ligar o som do sistema.');
+  if (somTelaStream) return;
+
+  const deviceId = await acharEntrada(rotulo);
+  if (!deviceId) throw new Error(`Não encontrei a fonte de áudio "${rotulo}".`);
+
+  adotarSomDaTela(await navigator.mediaDevices.getUserMedia({
+    // som de aplicativo não é voz: cancelar eco ou "melhorar" o sinal só estraga
+    audio: {
+      deviceId: { exact: deviceId },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    },
+  }));
+}
+
+/**
+ * O mesmo som, onde não existe dispositivo para capturar.
+ *
+ * No macOS e no Windows as bibliotecas nativas não criam entrada de áudio
+ * nenhuma: elas entregam blocos de PCM. O worklet transforma esses blocos numa
+ * faixa, e daí para a frente é indistinguível do caminho do Linux — inclusive
+ * para o outro lado da chamada.
+ *
+ * @param assinar recebe uma função que será chamada a cada bloco e devolve
+ *   como cancelar a assinatura.
+ */
+export async function ligarSomDaTelaPcm({ taxa, canais }, assinar) {
+  if (!telaStream) throw new Error('Compartilhe a tela antes de ligar o som.');
+  if (somTelaStream) return;
+
+  // o contexto nasce na taxa do PCM: assim ninguém reamostra no caminho
+  const ctx = new AudioContext({ sampleRate: taxa });
+  try {
+    await ctx.audioWorklet.addModule('/js/pcm-worklet.js');
+    const no = new AudioWorkletNode(ctx, 'fonte-de-pcm', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [canais],
+      processorOptions: { canais },
+    });
+    const destino = ctx.createMediaStreamDestination();
+    no.connect(destino);
+    await ctx.resume().catch(() => {});
+
+    somContexto = ctx;
+    // transfere o buffer em vez de copiar: são blocos a cada 200ms, sem parar
+    somCancelar = assinar(buffer => {
+      try { no.port.postMessage(buffer, [buffer]); } catch (e) { console.error(e); }
+    });
+    adotarSomDaTela(destino.stream);
+  } catch (e) {
+    ctx.close().catch(() => {});
+    somContexto = null;
+    throw e;
+  }
+}
+
+/**
+ * As faixas entram em `telaStream`, não numa stream própria: assim chegam do
+ * outro lado com o id da tela e caem no controle "Som da tela", separadas da
+ * voz. É o invariante 3 — juntar os áudios num stream só mataria isso.
+ */
+function adotarSomDaTela(stream) {
+  somTelaStream = stream;
+  for (const faixa of stream.getAudioTracks()) {
+    telaStream.addTrack(faixa);
+    for (const peer of peers.values()) {
+      try { peer.pc.addTrack(faixa, telaStream); } catch (e) { console.error(e); }
+    }
+  }
+  eu.somDaTela = true;
+  aoMudar();
+}
+
+export function desligarSomDaTela() {
+  if (!somTelaStream) return;
+  remover(somTelaStream);
+  for (const faixa of somTelaStream.getAudioTracks()) {
+    try { telaStream?.removeTrack(faixa); } catch {}
+    faixa.stop();
+  }
+  somTelaStream = null;
+
+  // a assinatura primeiro: sem isso chegariam blocos para um worklet já morto
+  if (somCancelar) { try { somCancelar(); } catch (e) { console.error(e); } somCancelar = null; }
+  if (somContexto) { somContexto.close().catch(() => {}); somContexto = null; }
+
+  eu.somDaTela = false;
+  aoMudar();
+}
+
+/**
+ * Acha a entrada de áudio pelo rótulo, esperando ela aparecer.
+ *
+ * Duas esperas embutidas: o navegador só devolve rótulo depois de alguma
+ * permissão de áudio concedida, e a lista de dispositivos dele é um cache que
+ * demora a notar a fonte recém-criada no sistema — o app já a vê no grafo
+ * enquanto o Chromium ainda não. Sem o laço, o primeiro compartilhamento falha
+ * com "não encontrei a fonte" e o segundo funciona.
+ */
+async function acharEntrada(rotulo, esperaMax = 6000) {
+  const ateQuando = Date.now() + esperaMax;
+  let liberou = false;
+
+  while (Date.now() < ateQuando) {
+    const lista = await navigator.mediaDevices.enumerateDevices();
+
+    if (!liberou && !lista.some(d => d.kind === 'audioinput' && d.label)) {
+      const temporario = await navigator.mediaDevices.getUserMedia({ audio: true });
+      for (const t of temporario.getTracks()) t.stop();
+      liberou = true;
+      continue;
+    }
+
+    const achado = lista.find(d => d.kind === 'audioinput' && d.label.includes(rotulo));
+    if (achado) return achado.deviceId;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return null;
 }
 
 export async function alternarMic() {
@@ -387,6 +539,8 @@ function remover(stream) {
 
 function pararTela() {
   if (!telaStream) return;
+  // o som do sistema viaja com a tela: parou a tela, ele não tem mais onde morar
+  desligarSomDaTela();
   remover(telaStream);
   for (const t of telaStream.getTracks()) t.stop();
   telaStream = null;
@@ -411,6 +565,15 @@ function publicarEstado() {
 }
 
 export function minhaTela() { return telaStream; }
+
+/**
+ * Como o navegador classifica o que está sendo capturado: 'monitor' é a tela
+ * inteira, 'window' é uma janela. É o que permite ao app de mesa deduzir se o
+ * som deve ser o da máquina toda ou o de um aplicativo só.
+ */
+export function superficieDaTela() {
+  return telaStream?.getVideoTracks()[0]?.getSettings().displaySurface || null;
+}
 
 /* ================= o que tocar de cada peer ================= */
 

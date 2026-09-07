@@ -52,6 +52,11 @@ function somDe(sid) {
 /** sid em foco (a tela grande), ou null pro mosaico normal */
 let focado = null;
 
+/* A ponte só existe dentro do app de mesa. No navegador `window.transmissor`
+   não existe, o botão fica escondido e nada disto roda — a página continua a
+   mesma nos dois lugares. */
+const ponteSom = window.transmissor?.som || null;
+
 pintarIcones(document);
 
 /* ================= entrada ================= */
@@ -109,21 +114,39 @@ $('form-entrar').addEventListener('submit', async e => {
 /* ================= barra ================= */
 
 async function compartilhar() {
+  if (rtc.eu.tela) return pararDeCompartilhar();
+  await iniciarTela();
+}
+
+async function iniciarTela() {
   try {
     const resultado = await rtc.alternarTela({
       resolucao: $('resolucao-tela').value,
       fps: Number($('fps-tela').value),
     });
-    if (resultado?.audioDescartado) {
+
+    /* Só acontece no navegador. No app de mesa não chega áudio pelo
+       getDisplayMedia — o som vem por aplicativo, e a dica de "compartilhe uma
+       aba" mandaria a pessoa para o caminho errado justamente onde existe um
+       melhor. */
+    if (resultado?.audioDescartado && !ponteSom) {
       avisar('sala', 'O áudio do sistema não foi enviado: em janela ou tela '
         + 'inteira ele traria o som de outros apps junto. Pra levar som, '
         + 'compartilhe uma aba do Chrome.');
     }
-  }
-  catch (e) {
+  } catch (e) {
     // cancelar o diálogo do navegador é rotina, não erro
     if (e?.name !== 'NotAllowedError') avisar('sala', 'Não consegui capturar a tela: ' + e.message);
+    return renderizar();
   }
+  renderizar();
+  if (somDisponivel) await somAutomatico();
+}
+
+async function pararDeCompartilhar() {
+  await rtc.alternarTela();
+  rtc.desligarSomDaTela();
+  await ponteSom?.desligar();
   renderizar();
 }
 
@@ -187,20 +210,341 @@ $('btn-mic').addEventListener('click', async () => {
   renderizar();
 });
 
+/* Som por aplicativo, escolhido por quem compartilha. Fora do app de mesa
+   isto nem aparece.
+   O áudio desta chamada nunca entra. O que for marcado como "nunca levar"
+   também não entra por dedução nem por caixa de seleção. */
+let somDisponivel = false;
+let somTudo = false;   // o Windows mistura N processos e recusa "tudo"
+
+ponteSom?.recursos().then(r => { somDisponivel = r.disponivel; somTudo = r.tudo; });
+
+/* Quem fica de fora quando o som é "tudo". O nosso próprio app já sai sempre,
+   por PID, do lado de lá — esta lista é para o resto, e existe por um caso
+   concreto: conversar no Discord e mostrar a tela por aqui. Sem ela, a voz da
+   conversa voltaria para dentro da transmissão, com atraso.
+   Fica na máquina de quem compartilha: é preferência, não moderação. */
+const CHAVE_FORA = 'transmissor:som-fora';
+let foraDoSom = new Set();
+try { foraDoSom = new Set(JSON.parse(localStorage.getItem(CHAVE_FORA) || '[]')); } catch { /* primeira vez */ }
+
+/* Conjunto de nomes (nunca PIDs: no Windows o PID muda) ou modo 'tudo'.
+   Chaves do contrato: escolhidos + modo. 'tudo' só faz sentido no Linux. */
+const CHAVE_ESCOLHIDOS = 'transmissor:som-escolhidos';
+const CHAVE_MODO = 'transmissor:som-modo';
+let alvoDoSom = new Set();
+try {
+  if (localStorage.getItem(CHAVE_MODO) === 'tudo') alvoDoSom = 'tudo';
+  else {
+    const salvo = JSON.parse(localStorage.getItem(CHAVE_ESCOLHIDOS) || '[]');
+    if (Array.isArray(salvo)) alvoDoSom = new Set(salvo.filter(n => typeof n === 'string' && n));
+  }
+} catch { /* primeira vez */ }
+if (alvoDoSom instanceof Set) for (const nome of foraDoSom) alvoDoSom.delete(nome);
+
+function salvarAlvo() {
+  try {
+    if (alvoDoSom === 'tudo') {
+      localStorage.setItem(CHAVE_MODO, 'tudo');
+      localStorage.setItem(CHAVE_ESCOLHIDOS, JSON.stringify([]));
+    } else {
+      localStorage.removeItem(CHAVE_MODO);
+      localStorage.setItem(CHAVE_ESCOLHIDOS, JSON.stringify([...(alvoDoSom instanceof Set ? alvoDoSom : [])]));
+    }
+  } catch { /* sem espaço */ }
+}
+
+function idsParaLigar(apps) {
+  /* Sempre string[]. Espalhar 'tudo' ou um nome solto viraria caracteres. */
+  if (!(alvoDoSom instanceof Set)) return [];
+  if (somTudo) {
+    /* Linux: id === nome. Manda o conjunto inteiro, mesmo o jogo ainda
+       mudo — o vigia liga quando o fluxo nascer. */
+    return [...alvoDoSom].filter(nome => typeof nome === 'string' && nome && !foraDoSom.has(nome));
+  }
+  return (apps || []).filter(a => alvoDoSom.has(a.nome) && !foraDoSom.has(a.nome)).map(a => a.id);
+}
+
+/**
+ * Aplica o conjunto de ids ao backend e sincroniza a faixa WebRTC.
+ * Mudar o conjunto não recria a faixa; array vazio equivale a desligar.
+ * Com o menu aberto não chama renderizar: reconstruir o menu no clique
+ * desfaz o alvo e o "clicou fora" fecha tudo.
+ */
+function atualizarMarcaSomLocal() {
+  const t = tiles.get(rtc.eu.sid);
+  if (!t) return;
+  t.marcaSom.hidden = !rtc.eu.somDaTela;
+  t.marcaSom.title = (alvoDoSom instanceof Set && alvoDoSom.size)
+    ? `levando o som de ${[...alvoDoSom].join(', ')}`
+    : 'transmitindo com som';
+}
+
+function depoisDeMudarSom() {
+  if (menuAberto && !menu.hidden) atualizarMarcaSomLocal();
+  else renderizar();
+}
+
+async function aplicarAlvo(ids) {
+  if (!ids || ids.length === 0) {
+    await ponteSom?.ligar([], []);
+    rtc.desligarSomDaTela();
+    depoisDeMudarSom();
+    return;
+  }
+
+  const r = await ponteSom.ligar(ids, []);
+  if (!r.ok) {
+    avisar('sala', 'Não consegui levar o som: ' + r.erro);
+    return;
+  }
+
+  if (r.tipo === 'desligado') {
+    rtc.desligarSomDaTela();
+    depoisDeMudarSom();
+    return;
+  }
+
+  /* A faixa já ligada fica: rtc.ligarSomDaTela / Pcm no-op se somTelaStream
+     existe. Não chamar desligarSomDaTela no meio. */
+  if (!rtc.eu.somDaTela) {
+    try {
+      if (r.tipo === 'pcm') await rtc.ligarSomDaTelaPcm(r, ponteSom.aoReceberPcm);
+      else await rtc.ligarSomDaTela(r.fonte);
+    } catch (e) {
+      await ponteSom.desligar();
+      avisar('sala', e.message);
+    }
+  }
+  depoisDeMudarSom();
+}
+
+/**
+ * Leva todo o som do sistema (Linux).
+ * Entrar em tudo limpa as marcas individuais de aplicativos.
+ */
+async function levarTudo() {
+  fecharMenu();
+  if (alvoDoSom instanceof Set) alvoDoSom.clear();
+  alvoDoSom = 'tudo';
+  salvarAlvo();
+
+  const r = await ponteSom.ligar('tudo', [...foraDoSom]);
+  if (!r.ok) return avisar('sala', 'Não consegui levar o som: ' + r.erro);
+
+  if (!rtc.eu.somDaTela) {
+    try {
+      if (r.tipo === 'pcm') await rtc.ligarSomDaTelaPcm(r, ponteSom.aoReceberPcm);
+      else await rtc.ligarSomDaTela(r.fonte);
+    } catch (e) {
+      await ponteSom.desligar();
+      avisar('sala', e.message);
+    }
+  }
+  renderizar();
+}
+
+/**
+ * Para o som da tela e limpa as escolhas.
+ * “Parar o som” fecha o menu.
+ */
+async function tirarSom() {
+  fecharMenu();
+  if (alvoDoSom instanceof Set) alvoDoSom.clear();
+  else alvoDoSom = new Set();
+  salvarAlvo();
+  rtc.desligarSomDaTela();
+  await ponteSom?.desligar();
+  renderizar();
+}
+
+/**
+ * Ao compartilhar tela, semente por sugestão sem apagar as marcas da sessão.
+ * Marcado como nunca levar não entra por caixa nem dedução.
+ */
+async function somAutomatico() {
+  const sugestao = await ponteSom.sugestao(rtc.superficieDaTela());
+  const jaTemTudo = alvoDoSom === 'tudo';
+  const jaTemConjunto = alvoDoSom instanceof Set && alvoDoSom.size > 0;
+
+  /* Semear só na sessão vazia. 'tudo' ou marcas já escolhidas ficam —
+     senão compartilhar uma janela derrubaria "Levar todo o som". */
+  if (!jaTemTudo && !jaTemConjunto && sugestao) {
+    if (sugestao.id === 'tudo') {
+      if (somTudo) alvoDoSom = 'tudo';
+    } else if (sugestao.nome && !foraDoSom.has(sugestao.nome)) {
+      alvoDoSom = new Set([sugestao.nome]);
+      salvarAlvo();
+    }
+  }
+
+  if (alvoDoSom === 'tudo') {
+    await levarTudo();
+  } else if (alvoDoSom instanceof Set && alvoDoSom.size > 0) {
+    const apps = await ponteSom.aplicativos();
+    const ids = idsParaLigar(apps);
+    if (ids.length > 0) await aplicarAlvo(ids);
+  }
+}
+
+async function alternarFora(nome) {
+  fecharMenu();
+  if (foraDoSom.has(nome)) foraDoSom.delete(nome);
+  else foraDoSom.add(nome);
+  try { localStorage.setItem(CHAVE_FORA, JSON.stringify([...foraDoSom])); } catch { /* sem espaço */ }
+
+  if (alvoDoSom instanceof Set && alvoDoSom.has(nome)) {
+    alvoDoSom.delete(nome);
+    salvarAlvo();
+  }
+
+  /* Trocar a regra não derruba a fonte de áudio, então a faixa que o outro
+     lado recebe continua a mesma — sem renegociar, sem cortar o som. */
+  if (alvoDoSom === 'tudo') {
+    const r = await ponteSom.ligar('tudo', [...foraDoSom]);
+    if (!r.ok) avisar('sala', 'Não consegui mudar o som: ' + r.erro);
+  }
+  renderizar();
+}
+
+/**
+ * Linha de aplicativo com caixa de marcação.
+ * O clique alterna a seleção e chama ligar com o conjunto novo
+ * SEM fechar o menu e SEM reconstruí-lo, atualizando apenas esta linha.
+ */
+function itemAppCaixa(app, apps) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'menu-item';
+  btn.setAttribute('role', 'menuitemcheckbox');
+
+  const marcado = alvoDoSom instanceof Set && alvoDoSom.has(app.nome);
+  const bloqueado = foraDoSom.has(app.nome);
+
+  btn.setAttribute('aria-checked', String(marcado));
+  btn.disabled = bloqueado;
+  if (bloqueado) {
+    btn.title = `${app.nome} (marcado como nunca levar)`;
+  } else {
+    btn.title = marcado ? `Deixar de levar o som de ${app.nome}` : `Levar o som de ${app.nome}`;
+  }
+
+  const spanIcone = document.createElement('span');
+  spanIcone.dataset.icone = marcado ? 'check-square' : 'square';
+  spanIcone.append(icone(spanIcone.dataset.icone));
+
+  const spanTexto = document.createElement('span');
+  spanTexto.textContent = app.nome;
+  btn.append(spanIcone, spanTexto);
+
+  btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (btn.disabled) return;
+
+    let novoMarcado;
+    if (alvoDoSom === 'tudo') {
+      alvoDoSom = new Set([app.nome]);
+      novoMarcado = true;
+    } else {
+      if (!(alvoDoSom instanceof Set)) alvoDoSom = new Set();
+      if (alvoDoSom.has(app.nome)) {
+        alvoDoSom.delete(app.nome);
+        novoMarcado = false;
+      } else {
+        alvoDoSom.add(app.nome);
+        novoMarcado = true;
+      }
+    }
+    salvarAlvo();
+
+    trocarIcone(btn, novoMarcado ? 'check-square' : 'square');
+    btn.setAttribute('aria-checked', String(novoMarcado));
+    btn.title = novoMarcado ? `Deixar de levar o som de ${app.nome}` : `Levar o som de ${app.nome}`;
+    spanTexto.textContent = app.nome;
+
+    const ids = idsParaLigar(apps);
+    await aplicarAlvo(ids);
+  });
+
+  return btn;
+}
+
+/** Escolha do aplicativo, no botão direito da própria tela. */
+async function itensDeSom() {
+  const apps = await ponteSom.aplicativos();
+  const itens = [];
+  const somAtivo = alvoDoSom === 'tudo' || (alvoDoSom instanceof Set && alvoDoSom.size > 0);
+
+  if (somAtivo) itens.push(itemBotao('volume-x', 'Parar o som', tirarSom));
+
+  // sem "tudo" onde a plataforma não sabe fazer: o clique só daria erro
+  if (somTudo && alvoDoSom !== 'tudo') {
+    itens.push(itemBotao('speaker', 'Levar todo o som', levarTudo));
+  }
+
+  for (const app of apps) {
+    /* Exclusão só no modo 'tudo' (itens "Nunca levar" abaixo). Fora dele
+       um app em foraDoSom não ganha caixa desativada. */
+    if (foraDoSom.has(app.nome)) continue;
+    itens.push(itemAppCaixa(app, apps));
+  }
+
+  /* A exclusão só aparece no modo "tudo": é o único em que ela muda alguma
+     coisa. Levando o som de um aplicativo só, nada mais entra por definição.
+     A lista inclui quem já está excluído mesmo sem estar tocando — senão não
+     haveria como desfazer depois que o programa fecha. */
+  if (alvoDoSom === 'tudo') {
+    const nomes = [...new Set([...apps.map(a => a.nome), ...foraDoSom])];
+    if (nomes.length) itens.push(document.createElement('hr'));
+    for (const nome of nomes) {
+      const fora = foraDoSom.has(nome);
+      itens.push(itemBotao(fora ? 'volume-2' : 'volume-x',
+        fora ? `Voltar a levar ${nome}` : `Nunca levar ${nome}`,
+        () => alternarFora(nome)));
+    }
+  }
+
+  /* Sem aplicativo nenhum tocando, "levar todo o som" ainda funciona (o que
+     começar depois entra sozinho), mas a lista curta pareceria defeito. */
+  if (!apps.length) {
+    const nota = document.createElement('div');
+    nota.className = 'menu-nota';
+    nota.textContent = 'nenhum aplicativo tocando agora';
+    itens.push(nota);
+  }
+  return itens;
+}
+
 $('btn-sair').addEventListener('click', () => { rtc.sair(); voltarParaEntrada(); });
 
 $('copiar').addEventListener('click', async () => {
   const link = location.origin;
   const rotulo = $('copiar').querySelector('.rotulo-botao');
-  try {
-    await navigator.clipboard.writeText(link);
+  if (await copiarTexto(link)) {
     trocarIcone($('copiar'), 'check');
     rotulo.textContent = 'Copiado';
     setTimeout(() => { trocarIcone($('copiar'), 'copy'); rotulo.textContent = 'Copiar link'; }, 1600);
-  } catch {
-    prompt('Copie o link da chamada:', link);
+  } else {
+    avisar('sala', 'O link é ' + link);
   }
 });
+
+/** Electron não implementa `prompt()`: o fallback antigo sumia no clique. */
+async function copiarTexto(texto) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch { /* sem permissão de clipboard — tenta o caminho velho */ }
+  const campo = document.createElement('textarea');
+  campo.value = texto;
+  campo.setAttribute('readonly', '');
+  campo.style.position = 'fixed';
+  campo.style.left = '-9999px';
+  document.body.append(campo);
+  campo.select();
+  try { return document.execCommand('copy'); }
+  finally { campo.remove(); }
+}
 
 $('ativar-som').addEventListener('click', () => {
   $('ativar-som').hidden = true;
@@ -242,11 +586,17 @@ document.addEventListener('keydown', e => {
 
 let menuAberto = null;
 
-function abrirMenu(sid, x, y) {
+async function abrirMenu(sid, x, y) {
   const p = participante(sid);
   if (!p) return;
 
   const itens = [];
+
+  /* Na sua própria tela, o menu é onde se escolhe de qual aplicativo levar o
+     som — e onde se para de levar. */
+  if (p.local && somDisponivel && rtc.eu.tela) {
+    itens.push(...await itensDeSom());
+  }
 
   if (!p.local) {
     const s = somDe(sid);
@@ -316,8 +666,12 @@ function itemBotao(nomeIcone, texto, aoClicar) {
   b.type = 'button';
   b.className = 'menu-item';
   b.setAttribute('role', 'menuitem');
-  b.append(icone(nomeIcone), document.createElement('span'));
-  b.querySelector('span').textContent = texto;
+  const spanIcone = document.createElement('span');
+  spanIcone.dataset.icone = nomeIcone;
+  spanIcone.append(icone(nomeIcone));
+  const spanTexto = document.createElement('span');
+  spanTexto.textContent = texto;
+  b.append(spanIcone, spanTexto);
   b.addEventListener('click', aoClicar);
   return b;
 }
@@ -383,7 +737,11 @@ function renderizar() {
   for (const p of lista) {
     const streamTela = p.local ? rtc.minhaTela() : rtc.streamDaTela(p.peer);
     const streamVoz = p.local ? null : rtc.streamDaVoz(p.peer);
-    p.transmitindo = rtc.temImagem(streamTela);
+    /* Na própria tela basta a captura existir. Exigir imagem viva escondia o
+       que estava sendo transmitido: no PipeWire a faixa passa um tempo `muted`
+       antes do primeiro quadro, e quem compartilhava via "ninguém está
+       compartilhando" enquanto o outro lado já recebia. */
+    p.transmitindo = p.local ? !!streamTela : rtc.temImagem(streamTela);
 
     desenharPessoa(p, streamTela, streamVoz);
     if (p.transmitindo) desenharTile(p, streamTela);
@@ -518,7 +876,15 @@ function desenharTile(p, streamTela) {
 
   t.tile.classList.toggle('focado', focado === p.sid);
   t.nome.textContent = p.local ? `${p.nome} (você)` : p.nome;
-  t.marcaSom.hidden = p.local || !rtc.temSom(streamTela);
+  t.marcaSom.hidden = !(p.local ? rtc.eu.somDaTela : rtc.temSom(streamTela));
+  t.marcaSom.title = !p.local ? 'transmitindo com som'
+    : (alvoDoSom instanceof Set && alvoDoSom.size) ? `levando o som de ${[...alvoDoSom].join(', ')}`
+    : 'transmitindo com som';
+  // o som não liga sozinho: o menu é o único lugar que o oferece, então ele
+  // precisa estar dito em algum canto
+  if (p.local && somDisponivel) {
+    t.tile.title = 'clique para ampliar · duplo clique para tela cheia · botão direito para levar o som';
+  }
   t.marcaMudo.hidden = !s?.mudo;
 }
 
@@ -582,8 +948,16 @@ function removerTile(sid) {
  * botão de destravar, que tenta de novo com um gesto do usuário na mão.
  */
 function trocarFonte(el, stream) {
-  if (el.srcObject === (stream || null)) return;
-  el.srcObject = stream || null;
+  const mesma = el.srcObject === (stream || null);
+  if (!mesma) el.srcObject = stream || null;
+  // já está tocando o mesmo stream: não há o que fazer
+  else if (!stream || !el.paused) return;
+
+  /* Repetimos o play() quando o elemento está parado, mesmo com o stream
+     igual. O som da tela chega DEPOIS do vídeo — é escolhido depois de
+     compartilhar —, e no celular o navegador barra a reprodução até haver um
+     gesto. Sem esta segunda tentativa, o botão de destravar nunca aparecia e o
+     áudio ficava mudo para sempre. */
   if (stream) el.play().catch(() => { $('ativar-som').hidden = false; });
 }
 

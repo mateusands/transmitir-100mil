@@ -18,11 +18,18 @@ Se uma mudança sua fizer o servidor tocar em áudio ou vídeo, ela está errada
 ```bash
 npm start            # servidor local em http://localhost:3000
 npm run hospedar     # servidor + túnel do Cloudflare, encerrados juntos
-npm run check        # sintaxe de todos os módulos
-npm run gerar-icones # regera public/js/icones.js a partir do lucide-static
+npm run app          # app de mesa (Electron): seletor próprio e som por aplicativo
+npm run check        # sintaxe de todos os módulos, inclusive desktop/
+npm run gerar-icones # regera public/js/icones.js (busca o Lucide na hora)
+npm run compilar-windows # regera os .exe da captura do Windows, de um Linux
 ```
 
-Node.js 22 ou mais novo. Sem etapa de build: `public/` é servido como está.
+Node.js 22 ou mais novo. `public/` é servido como está, sem empacotador nem
+transpilador.
+
+**Não há dependência de terceiro para áudio.** O `package.json` tem `express`,
+`socket.io` e `electron`, e nada mais. No Linux falamos com o PipeWire pelas
+ferramentas dele; no Windows, com binários compilados do nosso próprio fonte.
 
 `npm run check` precisa sair com `exit=0` antes de qualquer commit. Cuidado com
 `| tail` e `| grep`: eles reportam o status do último comando do cano, não o do
@@ -36,7 +43,15 @@ comando que interessa.
 | `public/js/rtc.js` | malha WebRTC: negociação, faixas, o que é voz e o que é som da tela |
 | `public/js/app.js` | interface: palco, fila de pessoas, foco, menu de volume |
 | `public/js/icones.js` | **gerado** — não edite à mão |
+| `public/js/pcm-worklet.js` | PCM cru do app de mesa vira faixa de áudio (Windows) |
+| `desktop/main.cjs` | app de mesa: janela, seletor de tela, servidor embutido |
+| `desktop/som.cjs` | porta comum do som por aplicativo; despacha por plataforma |
+| `desktop/som-linux.cjs` | Linux: fonte virtual e ligações, pelas ferramentas do PipeWire |
+| `desktop/som-pcm.cjs` | Windows: blocos de PCM dos nossos binários (macOS ainda não tem som) |
+| `desktop/nativo/win/` | captura do Windows: fonte C++ e os `.exe`; regere com `compilar-windows` |
+| `desktop/ponte.cjs` | ponte estreita entre a página e o processo principal |
 | `tools/hospedar.mjs` | sobe servidor + túnel e derruba os dois no `Ctrl+C` |
+| `iniciar-*.sh/.command/.bat` | lançadores: perguntam hospedar, app, ou os dois |
 
 ## Invariantes — quebrar isso quebra o produto
 
@@ -57,7 +72,28 @@ comando que interessa.
    única coisa que a rede de quem assiste alcança. Dependência nova de
    navegador entra convertida pro repositório (é o que `tools/gerar-icones.mjs`
    faz com os ícones do Lucide).
-6. **Sem etapa de build.** Os arquivos de `public/` são servidos como estão.
+6. **Sem etapa de build no que é servido.** Os arquivos de `public/` vão como
+   estão: sem empacotador, sem transpilador, sem passo de geração além do
+   `gerar-icones`. Dependência nativa é permitida **desde que traga binário
+   pronto** — se um pacote exige compilar na máquina de quem instala, ele está
+   fora. Nada de driver de áudio, cabo virtual ou serviço no sistema.
+   Hoje **não há binário de terceiro nenhum** no projeto. No Linux falamos com
+   o PipeWire pelo `pw-dump`, `pw-loopback` e `pw-link`, que vêm com ele; no
+   Windows os executáveis saem do nosso fonte em `desktop/nativo/win/`, e
+   `npm run compilar-windows` os regenera de qualquer Linux. Se um dia voltar a
+   entrar binário de fora, ele vem com a soma conferida e em versão exata,
+   sem `^`.
+7. **O nosso próprio áudio nunca entra na captura.** Levar o som da máquina
+   inteira é opção legítima e existe ("Levar todo o som"), mas o processo
+   `"Audio Service"` do Chromium fica **sempre** de fora — senão as vozes desta
+   chamada voltariam para dentro dela, com atraso. Quem conversa por outro
+   programa exclui esse também, pelo menu, e a escolha é lembrada.
+   O som liga junto com a tela, deduzido do que foi compartilhado — mas a
+   exclusão vale igual, e um aplicativo marcado como "nunca levar" não é ligado
+   nem pela dedução.
+   No Windows não existe "tudo menos": a API captura um processo por vez, então
+   o pedido de "tudo" é recusado com mensagem. Vários aplicativos, sim — um
+   `captura.exe` por PID, misturados numa faixa PCM só.
 
 ## Convenções
 
@@ -95,6 +131,13 @@ a ferramenta que já usa. O que **precisa** ser verificado numa mudança:
 | negociação WebRTC | uma segunda pessoa recebe imagem e som — e as duas continuam se vendo depois de parar e voltar a compartilhar |
 | qualquer coisa visual | os cinco estados de cada controle, e o contraste de texto acima de 4.5:1 |
 | rotas do servidor | `/api/ping`, um arquivo de `public/` e uma rota inexistente (que devolve a página) |
+| som por aplicativo | marcou um ou vários, **só esses** vão; o app segue audível para quem compartilha; parar a tela para o som junto |
+| som "todo o som" | o excluído no menu não entra (meça: RMS zero), e o excluído é lembrado entre sessões |
+| trocar a regra do som | mudar de app, ou mexer na exclusão, **não** derruba a faixa de quem recebe |
+| começar a compartilhar | o som liga sozinho: tela inteira leva tudo, janela leva o som do dono dela |
+| som por aplicativo | pausar e voltar a tocar no app escolhido — o som volta sozinho, sem reescolher |
+| captura de tela no Linux | no Wayland quem pergunta é o portal; no X11 tem que aparecer o **nosso** seletor, e não compartilhar direto |
+| lançadores | as três opções despacham certo, e por pipe (sem terminal) não travam |
 
 Duas coisas que valem por qualquer automação:
 
@@ -133,10 +176,64 @@ enxergam na fila um do outro.
 - **`getDisplayMedia` só existe em contexto seguro.** Pelo túnel funciona; por
   `http://<ip-da-lan>:3000`, não.
 - **O áudio do `getDisplayMedia` só é "recortado" pro que está na tela quando
-  a pessoa compartilha uma aba do Chrome.** Em janela ou tela inteira, o
-  áudio que o Chromium oferece é o do sistema inteiro — não existe opção de
-  API pra "só o som deste app" fora de aba. `alternarTela` em `rtc.js`
-  descarta esse áudio quando `displaySurface !== 'browser'`, pra ninguém
-  ouvir o que não devia; isolar áudio por app de verdade (janela ou tela
-  inteira) exige suporte do sistema operacional, fora do que este projeto
-  (sem build, sem app nativo) se propõe a fazer.
+  a pessoa compartilha uma aba do Chrome.** Em janela ou tela inteira, o áudio
+  que o Chromium oferece é o do sistema inteiro — não existe opção de API pra
+  "só o som deste app" fora de aba. `alternarTela` em `rtc.js` descarta esse
+  áudio quando `displaySurface !== 'browser'`, pra ninguém ouvir o que não
+  devia. Isolar por aplicativo de verdade exige suporte do sistema operacional,
+  e é exatamente o que o **app de mesa** faz — veja a seção abaixo. No
+  navegador, descartar continua sendo a única saída honesta.
+
+### App de mesa e áudio
+
+- **`desktopCapturer.getSources()` faz coisas opostas conforme a sessão.** No
+  Wayland a chamada **abre** o portal e o que volta já é a escolha da pessoa —
+  uma fonte só. No X11 ela **enumera em silêncio**, sem diálogo nenhum. Pegar
+  `sources[0]` sem distinguir os dois faz o app compartilhar a primeira tela da
+  lista sem perguntar nada. E não confie só em `XDG_SESSION_TYPE`: Flatpak e
+  Snap apagam essa variável — confira o socket do Wayland no disco.
+- **Quem toca o áudio no Electron não é `process.pid`.** É um processo separado,
+  o `"Audio Service"`, achável em `app.getAppMetrics()`. Excluir o processo
+  principal da captura não exclui absolutamente nada.
+- **Leia o rótulo que o sistema registrou; não suponha o que você pediu.** A
+  página acha o dispositivo por rótulo. Já aconteceu de a fonte subir com o nome
+  certo e a descrição truncada: o módulo dizia sucesso e o erro só aparecia do
+  outro lado, na página, como "não encontrei a fonte".
+- **PCM de 16 bits não perdoa byte ímpar.** Se um bloco terminar no meio de uma
+  amostra e você descartar o byte solto, **todas** as amostras seguintes andam
+  meio sample. Não soa como defeito, soa como ruído. Guarde o resto para o
+  bloco seguinte.
+- **Faixa `live` não prova som.** Uma faixa de áudio existe e fica viva mesmo
+  carregando silêncio absoluto. Para dizer que o som chegou, meça — um
+  `AnalyserNode` do lado de quem recebe resolve, e é a diferença entre "a faixa
+  chegou" e "dá pra ouvir".
+- **Fluxo que some e volta precisa ser religado, e isso é nosso trabalho.** Um
+  aplicativo pausado mantém o nó (fica `Corked`) e continua na lista; um que
+  fecha o fluxo some do grafo e leva as ligações junto. O vigia de
+  `som-linux.cjs` reconcilia a cada segundo — é ele que faz "todo o som"
+  continuar valendo para o jogo que você abre no meio da conversa. Se o som
+  parar de voltar sozinho, é aí que se olha.
+- **`node.autoconnect=false` na captura não é enfeite.** Sem ele o WirePlumber
+  liga o **microfone** na nossa entrada por conta própria, e a voz de quem
+  compartilha vai junto com o som do jogo. Medido.
+
+#### Capturamos o fluxo, não a saída
+
+Ligamos as portas do **aplicativo**, não o monitor de um alto-falante. Então o
+som vai mesmo quando o programa toca num dispositivo que não é o padrão — jogo
+num fone USB enquanto o padrão é outro, por exemplo. Medido: um tom tocando num
+sink nulo (que não é a saída padrão) foi capturado sem perda nenhuma.
+
+E sem perda é literal: tom de referência a −30,1 dB, capturado a −30,1 dB.
+
+### Ao trabalhar neste repositório
+
+- **`pkill -f <padrão>` casa com o próprio shell que o executou**, porque o
+  padrão aparece na linha de comando dele. Mata a sua sessão e a mensagem de
+  erro não diz isso. Use `pkill -x <nome>`, ou filtre por PID.
+- **Teste de áudio toca no fone de quem está na máquina.** Se for gerar tom para
+  medir, mande para um sink nulo — ou avise antes, e mate o processo ao fim de
+  cada medição em vez de deixá-lo tocando entre um comando e outro.
+- **Lançador que pergunta precisa aguentar não ter ninguém.** Ele se re-executa
+  dentro de um emulador de terminal e pode ser chamado por pipe; sem um
+  `[[ -t 0 ]]` na frente do `read`, ele pendura para sempre.

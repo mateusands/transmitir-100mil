@@ -1,10 +1,19 @@
-# Transmissor
+# transmitir-100mil
 
 Chamada para compartilhar tela — com ou sem som — direto do navegador. O
 servidor só apresenta a página e repassa a sinalização; o vídeo vai ponto a
 ponto entre os participantes. Nada é gravado, nada fica em disco.
 
 Uma chamada só, sem código de sala: quem abre o link digita o nome e entra.
+
+Há também um **app de mesa** para quem compartilha, com uma coisa que navegador
+nenhum faz: levar o som dos **aplicativos escolhidos**, sem levar a conversa do
+Discord nem as vozes da própria chamada. Veja
+[App de mesa](#app-de-mesa-levar-o-som-de-um-aplicativo).
+
+Três dependências ao todo — `express`, `socket.io` e `electron` —, e **nenhuma
+biblioteca de terceiro para áudio**: o som sai das ferramentas que já vêm com o
+sistema, ou de código nosso.
 
 ## Requisitos
 
@@ -27,17 +36,25 @@ sem link público.
 
 Quem só vai assistir não precisa instalar nada: abre o link e pronto.
 
+O **app de mesa** — o que leva o som de um aplicativo — pede um pouco mais de
+cada sistema, porque conversa com o servidor de áudio da máquina. A lista está
+em [O que cada sistema usa](#o-que-cada-sistema-usa).
+
 ## Instalar
 
 ### Linux
 
 ```bash
-sudo pacman -S nodejs npm cloudflared        # Arch, CachyOS, Manjaro
+sudo pacman -S nodejs npm cloudflared pipewire pipewire-audio   # Arch, CachyOS, Manjaro
 ```
 
 ```bash
-sudo apt install nodejs npm                  # Debian, Ubuntu
+sudo apt install nodejs npm pipewire pipewire-audio      # Debian, Ubuntu
 ```
+
+O PipeWire é só para o app de mesa levar o som de um aplicativo — quem já tem
+som funcionando quase certamente já o tem. Para hospedar no navegador, Node e
+npm bastam.
 
 No Debian/Ubuntu o `cloudflared` não está nos repositórios: pegue o `.deb` em
 [github.com/cloudflare/cloudflared/releases](https://github.com/cloudflare/cloudflared/releases)
@@ -85,10 +102,31 @@ juntos, e o endereço morre ali — a próxima execução gera outro.
 **Primeiro, conclua a instalação dos requisitos acima.** Abrir um lançador
 não substitui a instalação de Node.js, npm e, para acesso público, `cloudflared`.
 
-Os lançadores validam Node 22+ e npm, instalam as dependências na primeira
-execução e iniciam a sala. Sem `cloudflared`, avisam e continuam em modo local,
-sem link público. Nesse modo, compartilhar tela exige usar `localhost`;
-acesso pelo IP da LAN não fornece o HTTPS necessário para capturar tela.
+Os lançadores validam Node 22+ e npm e instalam as dependências na primeira
+execução.
+
+Ao abrir, o lançador pergunta o que fazer:
+
+```
+  1) Hospedar a sala      link público, para convidar gente
+  2) Abrir o app de mesa  som por aplicativo, só nesta máquina
+  3) Os dois              link público e o app aberto aqui
+```
+
+A opção **3** é a do caso comum: você quer convidar gente pelo link **e** levar
+o som de um aplicativo. Funciona porque o app não sobe servidor próprio quando
+a porta já está ocupada — ele entra na sala que o túnel está publicando.
+
+Sem `cloudflared`, as opções **1** e **3** avisam e seguem em modo local, sem
+link público — e aí compartilhar tela exige usar `localhost`, porque o IP da
+LAN não fornece o HTTPS que a captura pede. A opção **2** não usa `cloudflared`
+para nada e nem menciona o assunto.
+
+No Linux e no macOS, fechar a janela do app encerra o túnel junto. No Windows a
+sala abre numa janela separada, porque o `.bat` não tem controle de tarefas.
+
+Sem ninguém para responder — chamado por pipe, ou por um gerenciador de
+arquivos sem terminal — ele não trava: segue em **1**.
 
 - **Windows:** dê duplo clique em `iniciar-windows.bat`.
 - **macOS:** dê duplo clique em `iniciar-macos.command`, na pasta do projeto.
@@ -119,6 +157,39 @@ pkill -f tools/hospedar.mjs                  # Linux e macOS
 taskkill /IM cloudflared.exe /F              # Windows
 ```
 
+### Sem instalar nada na máquina
+
+Se você não quer (ou não pode) instalar Node e cloudflared no computador:
+
+```bash
+tools/pasta.sh
+```
+
+Ele confere o que já existe e baixa **para dentro da pasta do projeto** só o que
+faltar — Node em `.node/`, cloudflared em `.bin/`. Nada vai para o sistema: sem
+gerenciador de pacotes, sem PATH global, sem serviço, sem nada em `~/`. Apagar a
+pasta do projeto apaga tudo junto.
+
+```bash
+tools/pasta.sh verificar   # mostra o que seria usado, sem subir a sala
+tools/pasta.sh limpar      # apaga .node/, .bin/ e node_modules/
+```
+
+No Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\pasta.ps1
+```
+
+O download acontece **uma vez**: nas execuções seguintes ele reaproveita o que
+está na pasta. Se a máquina já tem Node 22+ ou cloudflared, ele usa os seus e
+não baixa nada. Custo em disco quando baixa os dois: cerca de 136 MB do Node
+(já sem os cabeçalhos C, que só servem para compilar módulo nativo) e 38 MB do
+cloudflared.
+
+Enquanto roda é um processo em primeiro plano; `Ctrl+C` derruba servidor e túnel
+juntos e não deixa nada ligado. Nenhuma parte disso roda ao ligar o computador.
+
 Só na sua máquina, sem túnel nem link público:
 
 ```bash
@@ -127,6 +198,100 @@ npm start
 
 Aí o endereço é `http://localhost:3000`. Serve para testar, mas só funciona
 para quem está no mesmo computador.
+
+## App de mesa: levar o som de um aplicativo
+
+O navegador não sabe levar o som de um programa específico. Ou vai o áudio de
+uma aba, ou — só no Windows — vai o sistema inteiro, e aí vai tudo junto:
+o Discord, a música, e as vozes desta própria chamada voltando com atraso.
+
+Levar **só o som do jogo** exige falar com o sistema de áudio da máquina, e é
+isso que o app de mesa faz:
+
+```bash
+npm run app
+```
+
+Ele abre a mesma sala numa janela própria. **O som liga junto com a tela**, e
+acompanha o que você escolheu compartilhar: a tela inteira leva o som da
+máquina, uma janela leva o som do programa dono dela.
+
+Para corrigir o palpite, ou mudar de ideia, o **botão direito na sua própria
+tela** abre as opções:
+
+- **Caixas por aplicativo** — marque Brave e o jogo, os dois vão. O menu
+  fica aberto. A escolha é lembrada.
+- **Levar todo o som** — no Linux, tudo que a máquina tocar, inclusive o que
+  começar depois. Menos o que você excluir. No Windows essa opção **não
+  existe**: a API captura um processo por vez, então o caminho é marcar
+  vários.
+- **Nunca levar X** — aparece no modo "todo o som". Marque o programa em que
+  você conversa e ele fica de fora, hoje e nas próximas vezes.
+
+O áudio **desta chamada nunca entra**, em nenhum dos modos — isso não é opção,
+é regra. Sem ela as vozes de quem está te ouvindo voltariam para dentro da
+transmissão, com atraso. É o que permite conversar no Discord e mostrar a tela
+por aqui: exclua o Discord uma vez e pronto.
+
+A exclusão vale também para o automático: um programa marcado como "nunca
+levar" não é ligado nem por dedução nossa. E trocar de aplicativo ou mexer na
+exclusão não corta o áudio de quem está assistindo.
+
+Para apontar o app para uma sala já publicada por outra pessoa:
+
+```bash
+TRANSMISSOR_URL=https://algo.trycloudflare.com npm run app
+```
+
+### O que cada sistema usa
+
+| | como captura | além do Node |
+|---|---|---|
+| Linux | PipeWire, pelas ferramentas dele | `pw-dump`, `pw-loopback`, `pw-link` |
+| macOS | **ainda não** — veja abaixo | — |
+| Windows | WASAPI process loopback, código nosso | Windows 10 build 20348, **só x64** |
+
+No **Linux** não há binário nenhum: falamos com o PipeWire pelas ferramentas
+que vêm com ele — `pw-dump` para ler o grafo, `pw-loopback` para criar a fonte
+e `pw-link` para ligar os aplicativos nela. Os dois primeiros vêm do pacote
+`pipewire`; o `pw-loopback`, do `pipewire-audio`. Quem já tem som funcionando
+com PipeWire tem os três.
+
+No **Windows** não existe o modo "todo o som": a API captura **um** processo por
+vez, e capturar o sistema sem filtro devolveria justamente o que não pode ir. Lá
+o pedido é recusado com mensagem, e o caminho é escolher o aplicativo.
+
+Os dois executáveis são **nossos**, compilados do fonte em
+`desktop/nativo/win/` — uma versão enxuta do exemplo ApplicationLoopback da
+Microsoft (MIT), sem o Media Foundation e sem a WIL que ele arrasta. Eles usam
+só o Universal CRT, que vem com o Windows 10 — não há redistribuível a
+instalar.
+
+Os executáveis vêm no `git clone`, então **não há nada a compilar para usar**.
+Para regenerá-los, de qualquer Linux ou macOS e sem instalar nada no sistema:
+
+```bash
+npm run compilar-windows
+```
+
+Ele baixa a toolchain llvm-mingw para dentro de `.bin/`, confere a soma antes de
+extrair e compila. Nada é instalado no sistema, e apagar `.bin/` apaga tudo.
+Detalhes no [LEIA-ME de lá](desktop/nativo/win/LEIA-ME.md).
+
+São as APIs que os próprios sistemas criaram para isto. Os binários vêm
+prontos: `npm install` não compila nada, e nada é instalado fora da pasta do
+projeto — sem driver de áudio virtual, sem serviço, sem cabo virtual.
+
+**Ressalvas honestas:**
+
+- O caminho do **Windows compila, mas ninguém o rodou**. Compilar não é testar:
+  a API pode falhar em execução por motivo que compilador nenhum enxerga. Se
+  falhar num Windows, é aí que se olha primeiro.
+- No **macOS** o som por aplicativo **ainda não existe** — compartilhar tela
+  funciona normalmente, mas a opção de som nem aparece. O caminho é conhecido
+  (Core Audio process taps, macOS 14.2+), e falta escrevê-lo e, principalmente,
+  ter um Mac para testar. Oferecer sem testar seria pior que não oferecer.
+- No **Windows** só há binário x64. Windows em ARM não roda.
 
 ## Na chamada
 
@@ -143,6 +308,8 @@ e é por ela que se chega no volume de cada um.
 - **Clique numa pessoa** — a tela dela vira a grande e o resto encolhe numa
   fita embaixo. Clicar de novo (ou `Esc`) volta ao mosaico.
 - **Duplo clique** — tela cheia de verdade. `Esc` sai.
+- **Botão direito na sua própria tela** (só no app de mesa) — escolhe de qual
+  aplicativo levar o som, ou para de levar.
 - **Botão direito numa pessoa** — abre o controle de volume dela:
   - **Voz** — o microfone da pessoa.
   - **Som da tela** — o áudio do que ela está transmitindo (jogo, vídeo, música).
@@ -159,9 +326,12 @@ O ícone de microfone na pastilha fica verde quando a pessoa está com o mic
 ligado; a borda fica vermelha quando a conexão com ela caiu, e azul enquanto
 ela transmite.
 
-## Áudio da tela, por sistema
+## Áudio da tela pelo navegador
 
-O que dá para capturar depende do navegador e do sistema — é limitação deles,
+Esta seção é sobre quem entra pelo **link, no navegador**. Quem usa o app de
+mesa não passa por nada disto — lá o som é escolhido por aplicativo.
+
+O que o navegador deixa capturar depende dele e do sistema; é limitação deles,
 não do projeto:
 
 | | Áudio da aba | Áudio da tela inteira |
@@ -173,7 +343,9 @@ não do projeto:
 
 Ou seja: para levar o som junto fora do Windows, compartilhe **uma aba do
 navegador** e marque *Compartilhar áudio da aba* no diálogo. No Windows, ao
-escolher a tela inteira, aparece *Compartilhar áudio do sistema*.
+escolher a tela inteira, aparece *Compartilhar áudio do sistema* — e ele leva
+mesmo **tudo**, inclusive o Discord e as vozes desta chamada. Se isso incomodar,
+é exatamente o caso de usar o app de mesa.
 
 No **macOS**, na primeira vez o sistema pede autorização: Ajustes do Sistema →
 Privacidade e Segurança → Gravação de Tela → marque o navegador e reabra ele.
@@ -207,11 +379,33 @@ npm start         # servidor local em http://localhost:3000
 ```
 
 ```bash
-npm run check     # sintaxe de todos os módulos
+npm run app       # app de mesa, com o som por aplicativo
 ```
 
-Não há etapa de build: os arquivos de `public/` são servidos como estão. Editou,
-recarregou, viu.
+```bash
+npm run check     # sintaxe de todos os módulos, inclusive desktop/
+```
+
+Não há empacotador nem transpilador: os arquivos de `public/` são servidos como
+estão. Editou, recarregou, viu.
+
+### Dependências
+
+Três, e todas de fora do caminho do áudio:
+
+| | para quê |
+|---|---|
+| `express` | serve `public/` e o `/api/config` |
+| `socket.io` | repassa a sinalização WebRTC |
+| `electron` | o app de mesa (dependência de desenvolvimento) |
+
+**Nenhuma biblioteca de terceiro para capturar áudio.** No Linux falamos com o
+PipeWire pelas ferramentas que vêm com ele (`pw-dump`, `pw-loopback`,
+`pw-link`); no Windows, por binários compilados do fonte em
+`desktop/nativo/win/`, que é nosso.
+
+Os ícones também não são dependência: o Lucide é buscado na hora pelo gerador,
+conferido pela soma que o npm publica, e o resultado entra versionado.
 
 Para uma chamada de duas pessoas na mesma máquina, abra o endereço em duas abas
 (ou numa janela anônima). Vale lembrar que compartilhar tela exige contexto
@@ -228,19 +422,34 @@ São do [Lucide](https://lucide.dev) (ISC), convertidos para dentro do projeto:
 npm run gerar-icones   # só quando mudar a lista em tools/gerar-icones.mjs
 ```
 
-O pacote é dependência de desenvolvimento e não vai pro navegador — a página
-não busca nada de CDN nenhum, porque o túnel pode ser a única coisa que a rede
-de quem assiste alcança. Emoji não entra na interface: o desenho muda a cada
-sistema, a cor é fixa e não segue o estado do elemento.
+O pacote do Lucide **não é dependência do projeto**: são 63 MB de SVG para
+produzir 4 KB de saída, e o resultado já está versionado em
+`public/js/icones.js`. O gerador o busca na hora, confere a soma que o npm
+publica e apaga a pasta temporária no fim.
+
+A página não busca nada de CDN nenhum — importa porque a chamada pode estar
+sendo servida por um túnel que é a única coisa que a rede de quem assiste
+alcança. Emoji também não entra na interface: o desenho muda a cada sistema, a
+cor é fixa e não segue o estado do elemento.
 
 ## Estrutura
 
 ```
-server/index.js       servidor: arquivos estáticos + relay de sinalização
-public/js/rtc.js      malha WebRTC (perfect negotiation), separa voz e som da tela
-public/js/app.js      interface: palco, fila de pessoas, foco, menu de volume
-public/js/icones.js   gerado — ícones do Lucide embutidos
-tools/hospedar.mjs    servidor + túnel, encerrados juntos
+server/index.js         servidor: arquivos estáticos + relay de sinalização
+public/js/rtc.js        malha WebRTC (perfect negotiation), separa voz e som da tela
+public/js/app.js        interface: palco, fila de pessoas, foco, menu de volume
+public/js/pcm-worklet.js  PCM cru do app de mesa vira faixa de áudio (Windows)
+public/js/icones.js     gerado — ícones do Lucide embutidos
+desktop/main.cjs        app de mesa: janela, seletor de tela, servidor embutido
+desktop/som.cjs         porta comum do som por aplicativo, nas três plataformas
+desktop/som-linux.cjs     Linux: fonte virtual e ligações, pelas ferramentas do PipeWire
+desktop/som-pcm.cjs       Windows: blocos de PCM dos nossos binários
+desktop/nativo/win/     captura do Windows: fonte C++ e os executáveis
+desktop/seletor.html    seletor de tela próprio (onde o sistema não tem um)
+desktop/ponte.cjs       ponte estreita entre a página e o processo principal
+tools/hospedar.mjs      servidor + túnel, encerrados juntos
+tools/pasta.sh          modo pasta: Node e cloudflared dentro do projeto (Linux/macOS)
+tools/pasta.ps1         o mesmo no Windows
 tools/gerar-icones.mjs  regera public/js/icones.js
 ```
 

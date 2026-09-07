@@ -9,6 +9,7 @@ muda quando quem está no teclado é o Claude Code.
 ```bash
 npm run check     # exit=0
 npm start         # e então ABRA http://localhost:3000
+npm run app       # app de mesa — o som por aplicativo só existe aqui
 ```
 
 Checagem estática não é prova de que funciona: ela lê o código, não o produto
@@ -50,5 +51,9 @@ Sem as skills instaladas, as regras que importam já estão destiladas no
 - Commit e push **só quando pedirem**.
 - Não introduza framework, empacotador nem dependência de navegador: veja os
   invariantes 5 e 6 do `AGENTS.md`.
+- **Não introduza binário de terceiro.** O projeto já teve três para áudio e
+  saíram todos: o que entra é fonte nosso, que qualquer um recompila com um
+  comando, ou ferramenta que já vem com o sistema. Hoje o `package.json` tem `express`, `socket.io` e
+  `electron`, e mais nada.
 - Comentário aqui explica **por que**, e em português. Vários dos que existem
   marcam uma armadilha real — antes de apagar um, entenda o que ele protege.
