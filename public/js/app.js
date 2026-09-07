@@ -257,6 +257,8 @@ function desenharConexao() {
       const partes = [];
       if (d.pingMs !== null) partes.push(`${d.pingMs} ms`);
       if (d.perda !== null) partes.push(`${(d.perda * 100).toFixed(1)}% perda`);
+      // o caminho só é dito quando NÃO é o direto: dizer "direto" sempre é ruído
+      if (d.caminho && !d.direto) partes.push(d.caminho);
       /* Só mostramos o diagnóstico quando ele acusa alguém, ou quando a
          qualidade escolhida deixou de caber no cano. "Conexão saudável" escrito
          o tempo todo é ruído que ensina a ignorar o painel. */

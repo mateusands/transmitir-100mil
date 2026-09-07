@@ -42,8 +42,10 @@ async function medir(pc) {
      Só um está em uso, e quem sabe qual é o transport. Pegar "o primeiro que
      deu certo" pega o par errado, que vem sem os números de banda. */
   let parEmUso = null;
+  const candidatos = new Map();
   for (const s of relatorio.values()) {
     if (s.type === 'transport' && s.selectedCandidatePairId) parEmUso = s.selectedCandidatePairId;
+    if (s.type === 'local-candidate' || s.type === 'remote-candidate') candidatos.set(s.id, s);
   }
 
   for (const s of relatorio.values()) {
@@ -81,6 +83,12 @@ async function medir(pc) {
       // não ausência de medida
       if (typeof s.currentRoundTripTime === 'number') m.rttCano = s.currentRoundTripTime;
       if (typeof s.availableOutgoingBitrate === 'number') m.bitrateDisponivel = s.availableOutgoingBitrate;
+      /* Por onde a mídia está indo. `host` é direto; `srflx`/`prflx` saem da
+         máquina e voltam pela internet, mesmo entre dois computadores da mesma
+         casa; `relay` passa por um servidor TURN, que é o pior dos três.
+         Isto costuma ser o que explica latência alta sem perda nenhuma. */
+      m.tipoLocal = candidatos.get(s.localCandidateId)?.candidateType;
+      m.tipoRemoto = candidatos.get(s.remoteCandidateId)?.candidateType;
     }
   }
   return m;
@@ -125,6 +133,15 @@ function julgar(novo, velho) {
   return { culpa: null, texto: 'Conexão saudável.' };
 }
 
+/* O pior dos dois lados manda: se um está atrás de NAT, o caminho todo é. */
+function caminho(local, remoto) {
+  const tipos = [local, remoto];
+  if (tipos.includes('relay')) return { nome: 'por servidor intermediário', direto: false };
+  if (tipos.includes('srflx') || tipos.includes('prflx')) return { nome: 'pela internet', direto: false };
+  if (tipos.includes('host')) return { nome: 'direto', direto: true };
+  return null;
+}
+
 /** O último veredito de um peer, ou null se ainda não há duas amostras. */
 export function diagnostico(sid) {
   const amostras = historico.get(sid);
@@ -137,9 +154,12 @@ export function diagnostico(sid) {
   // o RTT do relatório do outro lado é o mais fiel; o do cano serve para quem
   // só recebe, que não tem relatório de volta sobre nada
   const rtt = typeof novo.rtt === 'number' ? novo.rtt : novo.rttCano;
+  const rota = caminho(novo.tipoLocal, novo.tipoRemoto);
   return {
     culpa,
     texto,
+    caminho: rota?.nome ?? null,
+    direto: rota?.direto ?? null,
     pingMs: typeof rtt === 'number' ? Math.round(rtt * 1000) : null,
     perda: novo.perdaRelatada ?? null,
     encoder: novo.encoder ?? null,
