@@ -101,19 +101,39 @@ export function recalcularEscalaTela() {
   }
 }
 
-async function ajustarQualidadeTela(sender) {
-  try {
-    const params = sender.getParameters();
-    params.encodings = params.encodings?.length ? params.encodings : [{}];
+/* Um escritor só por emissor.
+   `setParameters` exige os parâmetros da leitura MAIS RECENTE. Duas chamadas
+   se cruzando — a qualidade e a troca de codec — fazem a segunda falhar com
+   DOMException, e o ajuste some sem ninguém notar. Custou um erro no console
+   que só apareceu quando a troca de codec entrou. */
+const filaDoEmissor = new WeakMap();
+
+function aplicarNoEmissor(sender, mudar) {
+  const anterior = filaDoEmissor.get(sender) || Promise.resolve();
+  const proxima = anterior.catch(() => {}).then(async () => {
+    try {
+      const params = sender.getParameters();
+      params.encodings = params.encodings?.length ? params.encodings : [{}];
+      mudar(params);
+      await sender.setParameters(params);
+      return true;
+    } catch (e) {
+      console.error('[rtc] falha ao ajustar o emissor', e);
+      return false;
+    }
+  });
+  filaDoEmissor.set(sender, proxima);
+  return proxima;
+}
+
+function ajustarQualidadeTela(sender) {
+  return aplicarNoEmissor(sender, params => {
     params.encodings[0].maxBitrate = bitrateTela;
     params.encodings[0].scaleResolutionDownBy = escalaTela;
     // quando a rede aperta, cede um pouco de resolução e um pouco de fps
     // junto, em vez de zerar uma das duas pra proteger a outra
     params.degradationPreference = 'balanced';
-    await sender.setParameters(params);
-  } catch (e) {
-    console.error('[rtc] falha ao ajustar bitrate da tela', e);
-  }
+  });
 }
 
 /* ================= ciclo de vida ================= */
@@ -169,6 +189,240 @@ export function sair() {
   socket.emit('sair');
   eu.sala = '';
   aoMudar();
+}
+
+/* ================= codec da tela: H.264 na GPU ================= */
+
+/* Nenhuma GPU de mercado codifica VP8 — nem AMD, nem NVIDIA, nem Intel. Como
+   o WebRTC negocia VP8 por padrão, a tela cai no libvpx, na CPU, e o custo é
+   POR ESPECTADOR: a malha codifica a mesma tela uma vez para cada pessoa.
+   Medido aqui: VP8 por software 91,7% de CPU entregando 12 fps; H.264 na GPU
+   11,5% entregando 55.
+
+   A PRIMEIRA TENTATIVA QUEBROU UMA CHAMADA DE VERDADE, com tela preta e som
+   normal do outro lado. Três coisas estavam erradas, e é por isso que este
+   bloco tem a forma que tem:
+
+   1. `setCodecPreferences` diz o que você prefere RECEBER, não o que envia.
+      Quem escolhe o codec de saída é `encodings[].codec` do setParameters.
+      (Chromium M124 passou a exigir a lista de RTCRtpReceiver justamente
+      porque muita gente usava a de sender, como eu usei.)
+   2. A lista de capacidade de ENVIO anuncia perfis que o decodificador da
+      mesma máquina não aceita: aqui o envio oferece `profile-level-id=640033`
+      (High, Level 5.1) e a recepção só vai até `64001f` (Level 3.1). Pedimos
+      um perfil que ninguém decodifica.
+   3. Nada avisava quem transmite que do outro lado não decodificava.
+
+   Agora o codec sai de `getParameters().codecs`, que é o que foi NEGOCIADO com
+   AQUELE peer — não o que esta máquina sabe fazer. E como isso não mexe no SDP,
+   trocar de codec não pede renegociação. */
+
+/* Constrained Baseline primeiro: é o H.264 que todo mundo decodifica, e é o
+   que os apps do ramo usam para interoperar. Nada de High/Level 5.1. */
+const PERFIS_H264 = ['42e01f', '42001f', '4d001f'];
+
+/* packetization-mode=1 é obrigatório em qualquer endpoint; o modo 0 não sabe
+   fragmentar, e um quadro-chave não cabe num pacote de rede. */
+const MODO_1 = /packetization-mode=1/;
+
+let h264Reprovado = false;   // alguém não decodificou: ninguém mais tenta nesta sessão
+
+function codecH264De(sender) {
+  for (const perfil of PERFIS_H264) {
+    const achado = (sender.getParameters().codecs || []).find(c =>
+      /\/H264$/i.test(c.mimeType)
+      && MODO_1.test(c.sdpFmtpLine || '')
+      && (c.sdpFmtpLine || '').includes('profile-level-id=' + perfil));
+    if (achado) return achado;
+  }
+  return null;
+}
+
+function trocarCodecDeEnvio(sender, codec) {
+  return aplicarNoEmissor(sender, params => {
+    if (codec) params.encodings[0].codec = codec;
+    else delete params.encodings[0].codec;
+  });
+}
+
+/**
+ * Volta todo mundo para VP8. Sem renegociar: o SDP não mudou.
+ *
+ * Nomeia o VP8 em vez de só apagar o campo: apagar não desfez a escolha na
+ * prática — medido, o fluxo continuou saindo em H.264 depois de desistir, o
+ * que deixaria a tela preta para sempre e tornaria este recuo decorativo.
+ */
+function abandonarH264(motivo) {
+  if (h264Reprovado) return;
+  h264Reprovado = true;
+  console.warn(`[rtc] desistindo do H.264: ${motivo}`);
+  for (const peer of peers.values()) {
+    for (const s of peer.pc.getSenders()) {
+      if (s.track?.kind !== 'video') continue;
+      const vp8 = (s.getParameters().codecs || []).find(c => /\/VP8$/i.test(c.mimeType));
+      trocarCodecDeEnvio(s, vp8 || null);
+    }
+  }
+}
+
+/**
+ * Prova, dentro desta máquina, que o H.264 do NOSSO encoder é decodificável.
+ *
+ * Medido: o `VaapiVideoEncodeAccelerator` desta GPU produz um fluxo que o
+ * próprio Chromium não decodifica — 745 quadros chegaram, ZERO decodificados,
+ * com o som passando normal. O mesmo H.264 por software (OpenH264) decodifica
+ * sem falha. Ou seja, o problema não é o codec nem o decodificador: é o
+ * bitstream de um encoder específico, e não dá para saber qual pela capacidade
+ * anunciada — só codificando e tentando decodificar.
+ *
+ * Por isso o teste é uma chamada de mentira contra nós mesmos. Se o nosso
+ * decodificador recusa o que o nosso encoder faz, nenhum outro vai aceitar, e
+ * ninguém precisa ver tela preta para a gente descobrir. Roda uma vez.
+ *
+ * 720p porque o encoder de hardware ignora resoluções pequenas e cai em
+ * software — testar em 320x240 provaria o caminho errado.
+ */
+let provaH264 = null;   // null = ainda não testado; depois, a promessa do veredito
+
+function provarH264() {
+  if (provaH264) return provaH264;
+  provaH264 = (async () => {
+    let a = null, b = null, pincel = null;
+    try {
+      const tela = document.createElement('canvas');
+      tela.width = 1280;
+      tela.height = 720;
+      const tinta = tela.getContext('2d');
+      let n = 0;
+      // sem movimento não há quadro novo, e sem quadro novo não há o que medir
+      pincel = setInterval(() => {
+        n++;
+        tinta.fillStyle = `hsl(${(n * 9) % 360}, 80%, 50%)`;
+        tinta.fillRect(0, 0, 1280, 720);
+        tinta.fillStyle = '#fff';
+        tinta.fillRect((n * 37) % 1200, 300, 80, 80);
+      }, 33);
+
+      const faixa = tela.captureStream(30).getVideoTracks()[0];
+      faixa.contentHint = 'detail';
+      a = new RTCPeerConnection();
+      b = new RTCPeerConnection();
+      a.onicecandidate = e => e.candidate && b.addIceCandidate(e.candidate);
+      b.onicecandidate = e => e.candidate && a.addIceCandidate(e.candidate);
+      const emissor = a.addTrack(faixa);
+      await a.setLocalDescription();
+      await b.setRemoteDescription(a.localDescription);
+      await b.setLocalDescription();
+      await a.setRemoteDescription(b.localDescription);
+
+      const codec = codecH264De(emissor);
+      if (!codec) return false;                       // não foi negociado
+      if (!await trocarCodecDeEnvio(emissor, codec)) return false;
+
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        for (const st of (await b.getStats()).values()) {
+          if (st.type !== 'inbound-rtp' || st.kind !== 'video') continue;
+          if (st.framesDecoded > 0) return true;      // decodificou: pode usar
+          // chegou bastante e não decodificou nenhum: é a falha que procuramos
+          if (st.framesReceived > 20) return false;
+        }
+      }
+      return false;   // não deu para provar; na dúvida, não arrisca
+    } catch (e) {
+      console.warn('[rtc] não deu para provar o H.264', e);
+      return false;
+    } finally {
+      clearInterval(pincel);
+      try { a?.close(); b?.close(); } catch { /* já fechados */ }
+    }
+  })();
+  return provaH264;
+}
+
+/**
+ * Tenta o H.264 e confere se valeu.
+ *
+ * Só vale se for para o hardware: em software o OpenH264 é pior que o libvpx
+ * para tela, por não ter as ferramentas de conteúdo sintético que o VP8 usa.
+ * Como a capacidade anunciada não diz nada sobre a GPU da máquina, a única
+ * forma de saber é codificar e olhar.
+ */
+async function tentarH264(peer) {
+  if (h264Reprovado) return;
+  const sender = peer.pc.getSenders().find(s => s.track?.kind === 'video');
+  if (!sender) return;
+
+  /* Antes de mandar para alguém: o nosso próprio encoder passa no teste? */
+  if (!await provarH264()) {
+    abandonarH264('o nosso H.264 não decodifica nem aqui dentro');
+    return;
+  }
+  if (!peers.has(peer.sid) || h264Reprovado) return;   // a prova demora
+
+  const codec = codecH264De(sender);
+  if (!codec) return;                       // não foi negociado: nada a fazer
+  if (!await trocarCodecDeEnvio(sender, codec)) return;
+
+  for (let i = 0; i < 8; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    if (!peers.has(peer.sid) || h264Reprovado) return;
+    let saida = null;
+    for (const st of (await peer.pc.getStats()).values()) {
+      if (st.type === 'outbound-rtp' && st.kind === 'video' && st.framesEncoded > 60) saida = st;
+    }
+    if (!saida) continue;
+    const impl = saida.encoderImplementation || '';
+    if (saida.powerEfficientEncoder === false || /libvpx|openh264|ffmpeg/i.test(impl)) {
+      abandonarH264(`ficou em software (${impl})`);
+    } else {
+      console.info(`[rtc] tela codificando na GPU (${impl})`);
+    }
+    return;
+  }
+}
+
+/**
+ * Do lado de quem ASSISTE: quadro chegando e nenhum decodificando.
+ *
+ * É o defeito que derrubou a primeira tentativa — som normal, imagem preta —
+ * e quem sofre não é quem escolheu o codec. Por isso a descoberta viaja de
+ * volta pelo canal de sinalização: quem transmite é que precisa mudar.
+ */
+function vigiarDecodificacao(peer) {
+  let zerados = 0;
+  let ultimoChegaram = 0;
+  let ultimoDecodificados = 0;
+  peer.vigiaCodec = setInterval(async () => {
+    if (!peers.has(peer.sid)) return pararVigia(peer);
+    let entrada = null;
+    try {
+      for (const st of (await peer.pc.getStats()).values()) {
+        if (st.type === 'inbound-rtp' && st.kind === 'video') entrada = st;
+      }
+    } catch { return; }
+    if (!entrada) return;
+
+    const chegaram = (entrada.framesReceived || 0) - ultimoChegaram;
+    const decodificados = (entrada.framesDecoded || 0) - ultimoDecodificados;
+    ultimoChegaram = entrada.framesReceived || 0;
+    ultimoDecodificados = entrada.framesDecoded || 0;
+
+    if (chegaram > 0 && decodificados === 0) zerados++;
+    else zerados = 0;
+
+    // três janelas seguidas: não é o começo da conexão, é recusa mesmo
+    if (zerados >= 3) {
+      console.warn('[rtc] vídeo chegando sem decodificar — avisando quem transmite');
+      enviar(peer.sid, { naoDecodifica: true });
+      pararVigia(peer);
+    }
+  }, 1000);
+}
+
+function pararVigia(peer) {
+  clearInterval(peer.vigiaCodec);
+  peer.vigiaCodec = null;
 }
 
 /* ================= peers ================= */
@@ -252,6 +506,12 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
   pc.onconnectionstatechange = () => {
     peer.conexao = pc.connectionState;
     if (pc.connectionState === 'failed') pc.restartIce();
+    /* Só depois de conectado: `getParameters().codecs` só tem o que foi
+       negociado quando a negociação terminou. */
+    if (pc.connectionState === 'connected') {
+      tentarH264(peer);
+      if (!peer.vigiaCodec) vigiarDecodificacao(peer);
+    }
     aoMudar();
   };
 
@@ -261,6 +521,7 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
 function fecharPeer(sid) {
   const peer = peers.get(sid);
   if (!peer) return;
+  pararVigia(peer);   // senão o intervalo sobrevive ao peer e mede o nada
   try { peer.pc.close(); } catch {}
   peers.delete(sid);
 }
@@ -286,6 +547,10 @@ async function tratarSinal(de, dados) {
         await pc.setLocalDescription();
         enviar(de, { desc: pc.localDescription });
       }
+    } else if (dados.naoDecodifica) {
+      /* Quem assiste não conseguiu decodificar o que mandamos. Não há o que
+         negociar: o codec sai de cena para todos, e para o resto da sessão. */
+      abandonarH264('quem assiste não decodificou');
     } else if (dados.candidate) {
       try { await pc.addIceCandidate(dados.candidate); }
       catch (e) { if (!peer.ignorandoOferta) throw e; }
