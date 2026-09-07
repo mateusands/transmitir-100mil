@@ -73,6 +73,12 @@ async function medir(pc) {
       m.tempoCongelado = s.totalFreezesDuration;
       m.pacotesPerdidos = s.packetsLost;
       m.pacotesRecebidos = s.packetsReceived;
+      /* Quadro que chega e não decodifica é tela preta com áudio normal — o
+         som vai por Opus, que sempre decodifica. Sem estes dois, a tela preta
+         cai no ramo genérico e a pessoa é mandada a fechar abas, que não
+         resolve nada. Custou um caso real. */
+      m.quadrosChegaram = s.framesReceived;
+      m.quadrosDecodificados = s.framesDecoded;
     } else if (s.type === 'inbound-rtp' && s.kind === 'audio') {
       // amostras que o decodificador INVENTOU para tapar buraco: é a medida
       // que corresponde ao engasgo que o ouvido percebe
@@ -114,6 +120,17 @@ function julgar(novo, velho) {
   const congelou = cresceu(novo, velho, 'tempoCongelado');
   const recebidos = cresceu(novo, velho, 'pacotesRecebidos');
   const perdidosAqui = cresceu(novo, velho, 'pacotesPerdidos');
+  const chegaram = cresceu(novo, velho, 'quadrosChegaram');
+  const decodificados = cresceu(novo, velho, 'quadrosDecodificados');
+
+  /* Antes de tudo: quadro chegando e nenhum decodificando não é rede nem CPU,
+     é o vídeo não sendo aceito pelo decodificador. É o único ramo em que o
+     número não deixa dúvida, então vem primeiro — e é o que separa "tela preta
+     com som funcionando" de todo o resto. */
+  if (chegaram > 0 && decodificados === 0) {
+    return { culpa: 'formato',
+      texto: 'O vídeo está chegando mas não está sendo decodificado por esta máquina — o som passa e a imagem fica preta. Fechar abas não resolve; quem transmite precisa baixar a qualidade ou atualizar o app.' };
+  }
 
   if (cpu > segundos * 0.3) {
     return { culpa: 'quem-transmite',
