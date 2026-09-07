@@ -108,6 +108,121 @@ async function ajustarQualidadeTela(sender) {
   }
 }
 
+/* ================= codec da tela ================= */
+
+/* Por que preferir H.264 na tela.
+
+   Nenhuma GPU de mercado codifica VP8 — nem AMD, nem NVIDIA, nem Intel. Como
+   o WebRTC negocia VP8 por padrão, a tela caía sempre no libvpx, na CPU. E o
+   custo é POR ESPECTADOR: a malha não tem servidor no meio, então a mesma
+   tela é codificada uma vez para cada pessoa na sala. Com 5 pessoas a 60 fps
+   são 300 quadros por segundo para codificar, junto com o jogo que a pessoa
+   está mostrando.
+
+   Medido (RX 6600, 3 espectadores, 1080p com movimento real): VP8 por
+   software gastou 91,7% de CPU e entregou 12 fps; H.264 na GPU gastou 11,5%
+   e entregou 55. No app de mesa o `AcceleratedVideoEncoder` do main.cjs é
+   quem abre essa porta; no navegador depende do que ele já traz ligado.
+
+   A preferência NÃO é uma aposta segura em toda máquina: em software o
+   OpenH264 é pior que o libvpx para tela, porque não tem as ferramentas de
+   conteúdo sintético que o VP8 usa. Por isso ela é conferida depois de
+   codificar de verdade e desfeita se caiu em software. */
+let preferirH264 = true;
+let conferindoEncoder = false;
+
+/* Software conhecido. Um encoder que não esteja aqui e não se declare
+   eficiente fica como está: trocar de codec no escuro é pior que não trocar. */
+const ENCODER_DE_SOFTWARE = /libvpx|openh264|ffmpeg|SimulcastEncoderAdapter \(OpenH264/i;
+
+function ordemComH264() {
+  const caps = RTCRtpSender.getCapabilities?.('video');
+  if (!caps?.codecs) return null;
+  const eh264 = c => /\/H264$/i.test(c.mimeType);
+  const h264 = caps.codecs.filter(eh264);
+  // Firefox sem OpenH264 instalado não oferece nenhum: aí não há o que preferir
+  if (!h264.length) return null;
+  return [...h264, ...caps.codecs.filter(c => !eh264(c))];
+}
+
+function transceptorDe(pc, sender) {
+  return pc.getTransceivers().find(t => t.sender === sender);
+}
+
+function preferirCodecDaTela(pc, sender) {
+  if (!preferirH264) return;
+  const ordem = ordemComH264();
+  if (!ordem) return;
+  try {
+    transceptorDe(pc, sender)?.setCodecPreferences?.(ordem);
+  } catch (e) {
+    console.warn('[rtc] preferência de codec recusada', e);
+  }
+}
+
+/* setCodecPreferences não dispara negotiationneeded — a oferta tem que ser
+   nossa, ou a mudança fica só no objeto local e nada muda na transmissão. */
+async function renegociar(peer) {
+  if (peer.fazendoOferta) return;
+  try {
+    peer.fazendoOferta = true;
+    await peer.pc.setLocalDescription();
+    enviar(peer.sid, { desc: peer.pc.localDescription });
+  } catch (e) {
+    console.error('[rtc] falha ao renegociar', e);
+  } finally {
+    peer.fazendoOferta = false;
+  }
+}
+
+function voltarAoCodecPadrao() {
+  for (const peer of peers.values()) {
+    let mexeu = false;
+    for (const t of peer.pc.getTransceivers()) {
+      if (t.sender?.track?.kind !== 'video') continue;
+      // lista vazia = "esqueça a preferência", que é o padrão do navegador
+      try { t.setCodecPreferences([]); mexeu = true; } catch { /* já negociado */ }
+    }
+    if (mexeu) renegociar(peer);
+  }
+}
+
+/**
+ * Confere, uma vez por sessão, se a tela foi mesmo para o hardware.
+ *
+ * Só dá para saber depois de codificar: a capacidade anunciada pelo navegador
+ * não diz nada sobre a GPU que está na máquina. Espera acumular quadros para
+ * não julgar pelos primeiros, que saem por software enquanto o encoder de
+ * hardware ainda está subindo.
+ */
+async function conferirEncoderDaTela(peer) {
+  if (conferindoEncoder || !preferirH264) return;
+  conferindoEncoder = true;
+  for (let tentativa = 0; tentativa < 12; tentativa++) {
+    await new Promise(r => setTimeout(r, 2000));
+    if (!peers.has(peer.sid)) break;
+    let saida = null;
+    try {
+      for (const s of (await peer.pc.getStats()).values()) {
+        if (s.type === 'outbound-rtp' && s.kind === 'video' && s.framesEncoded > 60) saida = s;
+      }
+    } catch { break; }
+    if (!saida) continue;
+
+    const impl = saida.encoderImplementation || '';
+    const software = saida.powerEfficientEncoder === false || ENCODER_DE_SOFTWARE.test(impl);
+    if (software) {
+      preferirH264 = false;
+      console.warn(`[rtc] H.264 ficou em software (${impl}); voltando ao codec padrão`);
+      voltarAoCodecPadrao();
+    } else {
+      console.info(`[rtc] tela codificando na GPU (${impl})`);
+    }
+    return;
+  }
+  conferindoEncoder = false;   // não deu para medir; a próxima tentativa vale
+}
+
 /* ================= ciclo de vida ================= */
 
 export function iniciar(sock, config, callback) {
@@ -187,7 +302,11 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
 
   for (const t of telaStream?.getTracks() || []) {
     const sender = pc.addTrack(t, telaStream);
-    if (t.kind === 'video') ajustarQualidadeTela(sender);
+    if (t.kind === 'video') {
+      preferirCodecDaTela(pc, sender);   // antes da oferta, ou não entra no SDP
+      ajustarQualidadeTela(sender);
+      conferirEncoderDaTela(peer);
+    }
   }
   for (const t of micStream?.getTracks() || []) pc.addTrack(t, micStream);
 
@@ -520,7 +639,11 @@ function adicionar(stream) {
     for (const track of stream.getTracks()) {
       try {
         const sender = peer.pc.addTrack(track, stream);
-        if (track.kind === 'video') ajustarQualidadeTela(sender);
+        if (track.kind === 'video') {
+          preferirCodecDaTela(peer.pc, sender);
+          ajustarQualidadeTela(sender);
+          conferirEncoderDaTela(peer);
+        }
       } catch (e) { console.error(e); }
     }
   }
