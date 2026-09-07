@@ -31,7 +31,10 @@ const PASTA = path.join(__dirname, 'nativo', 'win');
 const CAPTURA = path.join(PASTA, 'captura.exe');
 const JANELAS = path.join(PASTA, 'janelas.exe');
 
-let ativo = null;   // { parar() } enquanto há captura
+const AMOSTRAS_POR_BLOCO = TAXA / 100;
+const BYTES_POR_BLOCO = AMOSTRAS_POR_BLOCO * CANAIS * 2;
+
+let ativo = null;   // { processos, entregar, timer } enquanto há captura
 
 let avisou = false;
 
@@ -79,6 +82,56 @@ function fatiador(aoReceber) {
   };
 }
 
+function somar(destino, origem) {
+  for (let i = 0; i < BYTES_POR_BLOCO; i += 2) {
+    const soma = destino.readInt16LE(i) + origem.readInt16LE(i);
+    destino.writeInt16LE(Math.max(-32768, Math.min(32767, soma)), i);
+  }
+}
+
+function misturar(captura) {
+  const bloco = Buffer.alloc(BYTES_POR_BLOCO);
+  for (const fluxo of captura.processos.values()) {
+    /* Menos de 10 ms neste tick conta 0: somar o resto curto
+       dessincroniza os outros captura.exe. Byte ímpar já ficou no fatiador. */
+    if (fluxo.bytes.length < BYTES_POR_BLOCO) continue;
+    const parte = fluxo.bytes.subarray(0, BYTES_POR_BLOCO);
+    fluxo.bytes = fluxo.bytes.subarray(BYTES_POR_BLOCO);
+    somar(bloco, parte);
+  }
+  captura.entregar(new Uint8Array(bloco));
+}
+
+async function iniciarCaptura(captura, id) {
+  id = String(id);
+  const fluxo = { bytes: Buffer.alloc(0), processo: null, morreu: null };
+  const entregar = fatiador(bytes => { fluxo.bytes = Buffer.concat([fluxo.bytes, Buffer.from(bytes)]); });
+  const proc = spawn(CAPTURA, [id], { stdio: ['ignore', 'pipe', 'pipe'] });
+  fluxo.processo = proc;
+  captura.processos.set(id, fluxo);
+  proc.stdout.on('data', entregar);
+  proc.stderr.on('data', d => console.error('captura.exe:', String(d).trim()));
+  proc.on('exit', codigo => {
+    fluxo.morreu = codigo;
+    if (captura.processos.get(id) === fluxo) captura.processos.delete(id);
+  });
+
+  // O binário só descobre PID inválido depois de tentar ativá-lo.
+  await new Promise(r => setTimeout(r, 400));
+  if (fluxo.morreu !== null) {
+    if (captura.processos.get(id) === fluxo) captura.processos.delete(id);
+    throw new Error(`Não consegui capturar o som de ${id}.`);
+  }
+}
+
+function pararCaptura(captura, id) {
+  id = String(id);
+  const fluxo = captura.processos.get(id);
+  if (!fluxo) return;
+  captura.processos.delete(id);
+  try { fluxo.processo.kill(); } catch (e) { console.error(e); }
+}
+
 /**
  * Janelas visíveis e o processo dono de cada uma.
  *
@@ -117,43 +170,45 @@ async function sugestao(superficie, nomeDaFonte) {
 }
 
 /**
- * Começa a capturar e devolve o formato dos blocos, para o worklet montar a
- * faixa. Os blocos chegam em `aoReceber` como Uint8Array.
+ * Ajusta as capturas por PID sem trocar a entrega PCM que a página já ligou.
  */
-async function ligar(id, excluidos, aoReceber) {
-  await desligar();
+async function ligar(alvo, excluidos, aoReceber) {
   if (!disponivel()) throw new Error('A captura de áudio do Windows não está instalada.');
 
   /* Não há "tudo menos" no Windows: a API só sabe incluir um processo, e
      capturar o sistema sem filtro devolveria o Discord e as vozes desta
      chamada — justamente o que não pode ir. */
-  if (id === 'tudo') {
-    throw new Error('No Windows dá para levar o som de um aplicativo por vez, não o de todos.');
+  if (alvo === 'tudo') {
+    throw new Error('No Windows não dá para levar todo o som; escolha os aplicativos.');
+  }
+  if (!Array.isArray(alvo)) {
+    throw new Error('A seleção de som é inválida.');
   }
 
-  const entregar = fatiador(aoReceber);
-  const proc = spawn(CAPTURA, [String(id)], { stdio: ['ignore', 'pipe', 'pipe'] });
-  proc.stdout.on('data', entregar);
-  proc.stderr.on('data', d => console.error('captura.exe:', String(d).trim()));
-
-  let morreu = null;
-  proc.on('exit', codigo => { if (codigo) morreu = codigo; ativo = null; });
-
-  /* O binário só descobre que o PID não serve depois de tentar ativar, e isso
-     chega como saída não-zero. Esperar um instante troca um erro dito na cara
-     por uma transmissão muda que ninguém entende. */
-  await new Promise(r => setTimeout(r, 400));
-  if (morreu !== null) throw new Error('Não consegui capturar o som desse aplicativo.');
-
-  ativo = { parar: () => proc.kill() };
+  /* Religar o conjunto não troca a entrega: a página assinou o PCM uma vez
+     e a faixa WebRTC já existe. Trocar o callback ou chamar desligar()
+     derrubaria a faixa ao marcar o segundo app. */
+  if (!ativo) {
+    const captura = { processos: new Map(), entregar: aoReceber, timer: null };
+    captura.timer = setInterval(() => misturar(captura), 10);
+    ativo = captura;
+  }
+  const desejados = new Set(alvo.map(String));
+  for (const id of [...ativo.processos.keys()]) {
+    if (!desejados.has(id)) pararCaptura(ativo, id);
+  }
+  for (const id of desejados) {
+    if (!ativo.processos.has(id)) await iniciarCaptura(ativo, id);
+  }
   return { taxa: TAXA, canais: CANAIS };
 }
 
 async function desligar() {
   if (!ativo) return;
-  const parar = ativo.parar;
+  const captura = ativo;
   ativo = null;
-  try { await parar(); } catch (e) { console.error(e); }
+  clearInterval(captura.timer);
+  for (const id of [...captura.processos.keys()]) pararCaptura(captura, id);
 }
 
 /* `tudo: false` porque a API do Windows captura um processo por vez. Sem isto

@@ -91,9 +91,9 @@ comando que interessa.
    O som liga junto com a tela, deduzido do que foi compartilhado — mas a
    exclusão vale igual, e um aplicativo marcado como "nunca levar" não é ligado
    nem pela dedução.
-   No Windows não existe "tudo menos": a API captura um processo por vez. Lá é
-   um aplicativo por vez, e o pedido de "tudo" é recusado com mensagem em vez
-   de virar captura sem filtro.
+   No Windows não existe "tudo menos": a API captura um processo por vez, então
+   o pedido de "tudo" é recusado com mensagem. Vários aplicativos, sim — um
+   `captura.exe` por PID, misturados numa faixa PCM só.
 
 ## Convenções
 
@@ -131,7 +131,7 @@ a ferramenta que já usa. O que **precisa** ser verificado numa mudança:
 | negociação WebRTC | uma segunda pessoa recebe imagem e som — e as duas continuam se vendo depois de parar e voltar a compartilhar |
 | qualquer coisa visual | os cinco estados de cada controle, e o contraste de texto acima de 4.5:1 |
 | rotas do servidor | `/api/ping`, um arquivo de `public/` e uma rota inexistente (que devolve a página) |
-| som por aplicativo | escolheu um app, **só ele** vai; o app segue audível para quem compartilha; parar a tela para o som junto |
+| som por aplicativo | marcou um ou vários, **só esses** vão; o app segue audível para quem compartilha; parar a tela para o som junto |
 | som "todo o som" | o excluído no menu não entra (meça: RMS zero), e o excluído é lembrado entre sessões |
 | trocar a regra do som | mudar de app, ou mexer na exclusão, **não** derruba a faixa de quem recebe |
 | começar a compartilhar | o som liga sozinho: tela inteira leva tudo, janela leva o som do dono dela |

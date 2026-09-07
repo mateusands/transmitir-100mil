@@ -82,7 +82,13 @@ function recursos() {
  */
 function nossosPids() {
   try {
-    return new Set(app.getAppMetrics().map(p => p.pid).filter(Boolean));
+    const ids = new Set();
+    for (const p of app.getAppMetrics()) {
+      if (!p.pid) continue;
+      ids.add(p.pid);
+      ids.add(String(p.pid));
+    }
+    return ids;
   } catch { return new Set(); }
 }
 
@@ -222,9 +228,10 @@ async function sincronizar() {
 
   const { alvo, excluidos } = regra;
   const querido = new Set();
+  const escolhidos = alvo === 'tudo' ? null : new Set(alvo);
 
   for (const fluxo of fluxosDeApp(g)) {
-    const dentro = alvo === 'tudo' ? !excluidos.includes(fluxo.nome) : fluxo.nome === alvo;
+    const dentro = alvo === 'tudo' ? !excluidos.has(fluxo.nome) : escolhidos.has(fluxo.nome);
     if (!dentro) continue;
     for (const saida of portasDe(g, fluxo.id, 'out')) {
       for (const entrada of entradas) {
@@ -253,12 +260,17 @@ async function sincronizar() {
 /**
  * Liga o som e devolve o rótulo da fonte.
  *
- * @param alvo `'tudo'` ou o nome de um aplicativo vindo de aplicativos()
+ * @param alvo `'tudo'` ou array de nomes vindo de aplicativos()
  * @param excluidos nomes que não entram quando o alvo é `'tudo'`
  */
 async function ligar(alvo, excluidos = []) {
+  /* 'tudo' ou conjunto de nomes. Um nome solto em string viraria Set de
+     caracteres e o vigia ligaria o que não foi pedido. */
+  if (alvo !== 'tudo' && !Array.isArray(alvo)) {
+    throw new Error('A seleção de som é inválida.');
+  }
   const fonte = await garantirFonte();
-  regra = { alvo, excluidos };
+  regra = { alvo, excluidos: new Set(alvo === 'tudo' ? excluidos : []) };
   await sincronizar();
 
   /* Fluxo que nasce depois — o jogo que você abre no meio da conversa, ou a
