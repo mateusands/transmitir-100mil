@@ -382,7 +382,9 @@ input:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: -1
   transition: background var(--transicao), border-color var(--transicao);
 }
 .qualidade:hover { background: var(--sup-2); border-color: var(--borda-forte); }
+.qualidade:active { background: var(--sup-3); }
 .qualidade:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: 2px; }
+.qualidade:disabled { background: var(--fundo); border-color: var(--borda); color: var(--texto-3); cursor: default; }
 
 .menu-campo { padding: 8px 10px 10px; }
 .menu-campo label {

@@ -52,8 +52,14 @@ const BITRATE_TELA = {
   '720p':  { 60: 2_500_000, 30: 1_500_000, 15: 1_000_000 },
 };
 
-let bitrateTela = BITRATE_TELA['720p'][60];
+// mesma combinação do default de alternarTela/mudarQualidadeTela (720p/60) —
+// é o teto que vale quando resolução+fps pedidos não batem com nenhuma linha
+// da tabela, então tem que ser o mesmo padrão, não um valor menor à parte
+const BITRATE_PADRAO = BITRATE_TELA['720p'][60];
+
+let bitrateTela = BITRATE_PADRAO;
 let escalaTela = 1;
+let resolucaoAtual = '720p';
 
 /* Quanto reduzir em relação ao que o navegador REALMENTE capturou — não ao
    que foi pedido, já que os dois podem ser bem diferentes. Nunca aumenta
@@ -65,6 +71,23 @@ function calcularEscala(track, resolucao) {
   const larguraNativa = nativa.width || dims.largura;
   const alturaNativa = nativa.height || dims.altura;
   return Math.max(1, larguraNativa / dims.largura, alturaNativa / dims.altura);
+}
+
+/* A janela ou aba compartilhada pode mudar de tamanho no meio da
+   transmissão (redimensionar, maximizar). Sem recalcular aqui, a escala
+   fica presa ao tamanho nativo de quando começou e a resolução de saída
+   desalinha do que foi escolhido.
+   MediaStreamTrack não tem evento de resize — só o elemento <video> tem.
+   Por isso esta função não se liga sozinha a nada: quem chama é a interface,
+   a partir do resize do <video> que já existe no tile local (ver app.js). */
+export function recalcularEscalaTela() {
+  const track = telaStream?.getVideoTracks()[0];
+  if (!track) return;
+  escalaTela = calcularEscala(track, resolucaoAtual);
+  for (const peer of peers.values()) {
+    const sender = peer.pc.getSenders().find(s => s.track === track);
+    if (sender) ajustarQualidadeTela(sender);
+  }
 }
 
 async function ajustarQualidadeTela(sender) {
@@ -254,9 +277,12 @@ async function tratarSinal(de, dados) {
  * O "com som ou sem" é decisão de quem compartilha, no diálogo do navegador:
  * pedimos áudio junto e o Chrome mostra a caixinha "compartilhar áudio". Se
  * ele negar ou o usuário não marcar, vai só o vídeo — não é erro.
+ *
+ * Devolve { audioDescartado } pra a interface avisar quando o áudio pedido
+ * não foi enviado por causa do que está descrito no bloco abaixo.
  */
 export async function alternarTela({ resolucao = '720p', fps = 60 } = {}) {
-  if (telaStream) { pararTela(); publicarEstado(); aoMudar(); return; }
+  if (telaStream) { pararTela(); publicarEstado(); aoMudar(); return null; }
 
   // sem width/height: pedir isso pro getDisplayMedia não é respeitado pela
   // maioria dos navegadores em captura de tela. Pega a nativa e reduz depois
@@ -271,7 +297,24 @@ export async function alternarTela({ resolucao = '720p', fps = 60 } = {}) {
   // suavidade de movimento — é vídeo de tela, não webcam
   track.contentHint = 'detail';
 
-  bitrateTela = BITRATE_TELA[resolucao]?.[fps] ?? BITRATE_TELA['720p'][30];
+  /* O áudio do getDisplayMedia só vem recortado pro que está na tela quando a
+     pessoa compartilha uma ABA do Chrome — aí a caixinha é "áudio da aba".
+     Em janela ou tela inteira, o que o Chromium oferece é o áudio do SISTEMA
+     INTEIRO: quem assiste ouviria notificação, música, qualquer outro app
+     aberto, não só o que está sendo mostrado. Não existe opção de API pra
+     "áudio só deste app" fora de uma aba — isolar por aplicativo exige suporte
+     do sistema operacional (é o que o app de mesa em Electron, à parte deste
+     projeto, faz com código nativo). Sem esse suporte aqui, a única forma de
+     garantir que ninguém ouça o que não devia é não mandar esse áudio. */
+  const audioTrack = telaStream.getAudioTracks()[0];
+  const audioDescartado = !!audioTrack && track.getSettings().displaySurface !== 'browser';
+  if (audioDescartado) {
+    audioTrack.stop();
+    telaStream.removeTrack(audioTrack);
+  }
+
+  resolucaoAtual = resolucao;
+  bitrateTela = BITRATE_TELA[resolucao]?.[fps] ?? BITRATE_PADRAO;
   escalaTela = calcularEscala(track, resolucao);
 
   // parar pelo botão nativo do navegador tem que refletir na interface
@@ -283,6 +326,7 @@ export async function alternarTela({ resolucao = '720p', fps = 60 } = {}) {
   eu.tela = true;
   publicarEstado();
   aoMudar();
+  return { audioDescartado };
 }
 
 /**
@@ -297,7 +341,8 @@ export async function mudarQualidadeTela({ resolucao = '720p', fps = 60 } = {}) 
 
   await track.applyConstraints({ frameRate: { ideal: fps, max: fps } });
 
-  bitrateTela = BITRATE_TELA[resolucao]?.[fps] ?? BITRATE_TELA['720p'][30];
+  resolucaoAtual = resolucao;
+  bitrateTela = BITRATE_TELA[resolucao]?.[fps] ?? BITRATE_PADRAO;
   escalaTela = calcularEscala(track, resolucao);
 
   for (const peer of peers.values()) {
