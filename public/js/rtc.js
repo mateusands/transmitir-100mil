@@ -13,6 +13,10 @@ let socket = null;
 let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
 let aoMudar = () => {};
 
+/* `aoMudar` diz "algo mudou, redesenhe" e não serve para som: quando ele
+   dispara, a diferença já aconteceu e não dá para saber QUAL foi. Avisos
+   sonoros precisam do acontecimento, não do estado depois dele. */
+let aoAcontecer = () => {};
 
 /** sid -> { sid, nome, pc, polite, midias, meta, tela, mic, conexao } */
 export const peers = new Map();
@@ -170,9 +174,10 @@ function ajustarQualidadeTela(sender) {
 
 /* ================= ciclo de vida ================= */
 
-export function iniciar(sock, config, callback) {
+export function iniciar(sock, config, callback, aoEvento) {
   socket = sock;
   aoMudar = callback || (() => {});
+  aoAcontecer = aoEvento || (() => {});
   if (config?.ice_servers?.length) iceServers = config.ice_servers;
 
   socket.on('sala', ({ sala, eu: meu, peers: lista }) => {
@@ -187,10 +192,16 @@ export function iniciar(sock, config, callback) {
   socket.on('peer_entrou', ({ peer }) => {
     // o novo vai ofertar pra gente; aqui só preparamos a conexão
     criarPeer(peer, { iniciar: false });
+    aoAcontecer('entrou', peer.nome);
     aoMudar();
   });
 
-  socket.on('peer_saiu', ({ sid }) => { fecharPeer(sid); aoMudar(); });
+  socket.on('peer_saiu', ({ sid }) => {
+    const nome = peers.get(sid)?.nome;
+    fecharPeer(sid);
+    if (nome) aoAcontecer('saiu', nome);
+    aoMudar();
+  });
 
   socket.on('peer_estado', ({ sid, tela, mic, tela_id, mic_id }) => {
     const p = peers.get(sid);
@@ -477,6 +488,9 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
     meta: { telaId: info.tela_id || null, micId: info.mic_id || null },
     tela: !!info.tela,
     mic: !!info.mic,
+    /* null = ainda não disse nada. Diferente de false, que é "disse que parou":
+       sem a distinção, quem acabou de entrar contaria como "parou de ver". */
+    vendo: null,
     conexao: 'novo',
   };
   peers.set(info.sid, peer);
@@ -526,6 +540,24 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
       }
     }
     midia.addTrack(track);
+
+    /* Aviso de "estou vendo" — o que no Discord é o clique em assistir.
+
+       Aqui ninguém clica: quem está na sala recebe a tela sozinho. Então o
+       fato equivalente é a IMAGEM TER CHEGADO, e quem sabe disso é só quem
+       recebe. Por isso a descoberta viaja de volta pelo canal de sinalização:
+       quem compartilha não tem como medir daqui que a tela apareceu na
+       máquina do outro.
+
+       A faixa nasce `muted` e desmuta no primeiro quadro — é esse instante, e
+       não a chegada da faixa, que significa "apareceu na tela dele". */
+    if (track.kind === 'video') {
+      const contar = vendo => enviar(peer.sid, { vendo });
+      if (!track.muted) contar(true);
+      track.addEventListener('unmute', () => contar(true));
+      track.addEventListener('mute', () => contar(false));
+      track.addEventListener('ended', () => contar(false));
+    }
 
     track.onended = () => {
       try { midia.removeTrack(track); } catch {}
@@ -580,6 +612,14 @@ async function tratarSinal(de, dados) {
       if (dados.desc.type === 'offer') {
         await pc.setLocalDescription();
         enviar(de, { desc: pc.localDescription });
+      }
+    } else if (typeof dados.vendo === 'boolean') {
+      /* Só interessa enquanto EU compartilho: fora disso o aviso é de uma
+         tela que não é minha, e tocaria som por conta de outra pessoa. */
+      if (eu.tela && peer.vendo !== dados.vendo) {
+        peer.vendo = dados.vendo;
+        aoAcontecer(dados.vendo ? 'vendo' : 'parouDeVer', peer.nome);
+        aoMudar();
       }
     } else if (dados.naoDecodifica) {
       /* Quem assiste não conseguiu decodificar o que mandamos. Não há o que
@@ -646,6 +686,10 @@ export async function alternarTela({ resolucao = '720p', fps = 30, conteudo = CO
 
   fixarQualidade(track, { resolucao, fps, conteudo });
 
+  /* Cada compartilhamento conta de novo. Sem isto, quem já estava marcado como
+     vendo continuaria marcado depois de parar e recomeçar — e o aviso de que a
+     imagem chegou nunca mais tocaria para essa pessoa. */
+  for (const peer of peers.values()) peer.vendo = null;
 
   // parar pelo botão nativo do navegador tem que refletir na interface
   track.addEventListener('ended', () => {

@@ -8,6 +8,7 @@
 
 import * as rtc from './rtc.js';
 import * as conexao from './conexao.js';
+import * as avisos from './avisos.js';
 import { icone } from './icones.js';
 
 // exposto só pra depurar pelo console do navegador (ver resolução/bitrate
@@ -81,6 +82,32 @@ lembrarEscolha('resolucao-tela', 'transmissor:resolucao', '720p');
 lembrarEscolha('fps-tela', 'transmissor:fps', '30');
 lembrarEscolha('conteudo-tela', 'transmissor:conteudo', 'texto');
 
+/* Avisos sonoros ligados por padrão, com saída. Uma sala cheia rende som o
+   tempo todo, e som que não se desliga a pessoa resolve baixando o volume do
+   sistema inteiro — perdendo junto a voz de quem está falando. */
+const CHAVE_AVISOS = 'transmissor:avisos';
+avisos.silenciar(localStorage.getItem(CHAVE_AVISOS) === 'mudo');
+
+function pintarBotaoAvisos() {
+  const b = $('btn-avisos');
+  const mudo = avisos.silenciado();
+  b.setAttribute('aria-pressed', String(!mudo));
+  b.title = mudo ? 'avisos sonoros desligados' : 'avisos sonoros ligados';
+  b.setAttribute('aria-label', b.title);
+  trocarIcone(b, mudo ? 'bell-off' : 'bell');
+}
+
+$('btn-avisos').addEventListener('click', () => {
+  const mudo = !avisos.silenciado();
+  avisos.silenciar(mudo);
+  localStorage.setItem(CHAVE_AVISOS, mudo ? 'mudo' : 'toca');
+  pintarBotaoAvisos();
+  // tocar ao LIGAR é a única forma de a pessoa conferir o volume na hora
+  if (!mudo) avisos.tocar('entrou');
+});
+
+pintarBotaoAvisos();
+
 $('form-entrar').addEventListener('submit', async e => {
   e.preventDefault();
   nomeAtual = $('nome').value.trim();
@@ -99,7 +126,7 @@ $('form-entrar').addEventListener('submit', async e => {
     renderizar();
 
     socket = io();
-    rtc.iniciar(socket, config, renderizar);
+    rtc.iniciar(socket, config, renderizar, (tipo) => avisos.tocar(tipo));
     socket.on('erro', ({ erro }) => { avisar('sala', erro); voltarParaEntrada(); });
     socket.on('sala', () => { entrou = true; conexaoCaiu = false; renderizar(); });
 
