@@ -94,7 +94,8 @@ Ele sobe o servidor, abre o túnel e imprime um endereço
 `https://algo.trycloudflare.com`. Mande esse link. Quem abre digita o nome e já
 está na chamada. Enquanto esse túnel estiver aberto, o botão **Copiar link**
 também copia esse endereço público, mesmo para quem estiver usando a sala em
-`localhost`; sem túnel, ele copia o endereço local aberto.
+`localhost`. Se o túnel ainda estiver preparando o endereço, o botão espera;
+sem túnel, ele copia o endereço local aberto.
 
 **Para encerrar:** `Ctrl+C` na mesma janela. Isso derruba o servidor e o túnel
 juntos, e o endereço morre ali — a próxima execução gera outro.

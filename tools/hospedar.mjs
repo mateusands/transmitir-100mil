@@ -54,7 +54,10 @@ function esperarServidor(porta, tentativas = 60) {
 async function subirServidor() {
   const porta = await acharPorta(PORTA_INICIAL);
   servidor = fork(path.join(RAIZ, 'server', 'index.js'), [], {
-    env: { ...process.env, PORT: String(porta) },
+    // Antes de o cloudflared responder, o cliente precisa saber que localhost
+    // ainda não é o convite certo. Sem esse estado, um clique rápido copiaria
+    // um endereço que só funciona nesta máquina.
+    env: { ...process.env, PORT: String(porta), TUNEL_PUBLICO: '1' },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   servidor.stdout?.on('data', d => process.stdout.write(String(d)));
@@ -125,6 +128,7 @@ console.log('  Abrindo o túnel público…');
 const t = await subirTunel(porta);
 
 if (t.erro) {
+  servidor?.send?.({ tipo: 'tunel-indisponivel' });
   console.log(`\n  Sem link público: ${t.erro}`);
   console.log('  Dá pra usar assim mesmo em http://localhost:' + porta + ' e na rede local,');
   console.log('  mas compartilhar tela exige https fora de localhost.\n');
