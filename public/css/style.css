@@ -321,6 +321,34 @@ input:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: -1
   background: var(--sup-2);
 }
 .menu hr { border: 0; border-top: 1px solid var(--borda); margin: 6px 4px; }
+/* ---------- painel de conexão ---------- */
+
+/* o ícone só muda de cor quando há o que dizer: verde permanente vira ruído,
+   e quem olha para cá está procurando problema, não confirmação */
+#btn-conexao .icone { color: var(--texto-2); }
+#btn-conexao[data-estado="ruim"] .icone { color: var(--perigo); }
+.botao-so-icone { padding: 9px 10px; }
+
+#painel-conexao { min-width: 250px; max-width: 320px; }
+
+.conexao-linha { padding: 9px 10px; }
+.conexao-linha + .conexao-linha { border-top: 1px solid var(--borda); }
+.conexao-cabeca {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+}
+.conexao-nome {
+  color: var(--texto); font-size: 14px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* tabular-nums para o ping não dançar a cada atualização */
+.conexao-numeros {
+  color: var(--texto-2); font-size: 13px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.conexao-diagnostico { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--texto-2); }
+.conexao-diagnostico.ruim { color: #ffb4b6; }
+.conexao-nota { padding: 10px; color: var(--texto-3); font-size: 13px; }
+
 .menu-nome {
   display: flex;
   align-items: center;

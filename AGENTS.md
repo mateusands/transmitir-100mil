@@ -184,6 +184,50 @@ enxergam na fila um do outro.
   e é exatamente o que o **app de mesa** faz — veja a seção abaixo. No
   navegador, descartar continua sendo a única saída honesta.
 
+### Codec e qualidade da tela
+
+Tudo aqui foi pago com uma chamada real quebrada: tela preta do outro lado, som
+passando normal, e ninguém sabendo por quê.
+
+- **`setCodecPreferences` diz o que você prefere RECEBER, não o que envia.**
+  Fica no transceptor e parece o contrário, mas não é. Quem escolhe o codec de
+  saída é `encodings[].codec` do `setParameters`. O Chromium M124 passou a
+  exigir a lista de `RTCRtpReceiver.getCapabilities()` justamente porque muita
+  gente passava a de `RTCRtpSender` — e essa troca é o que derrubou a chamada.
+- **A lista de capacidade de ENVIO anuncia perfis que a RECEPÇÃO da mesma
+  máquina recusa.** Aqui o envio oferece `profile-level-id=640033` (H.264 High,
+  Level 5.1) e a recepção só vai até `64001f` (Level 3.1). Pedir um perfil que
+  só existe de um lado dá vídeo chegando e nada decodificando. Tire o codec de
+  `sender.getParameters().codecs`, que é o que foi **negociado com aquele
+  peer**, não o que esta máquina sabe fazer.
+- **O `VaapiVideoEncodeAccelerator` desta GPU produz um H.264 que o próprio
+  Chromium não decodifica.** Medido lado a lado: `OpenH264` deu 70 quadros
+  decodificados de 71; a VAAPI deu **0 de 745**. Não é o codec nem o
+  decodificador — é o bitstream de um encoder específico, e não dá para saber
+  qual pela capacidade anunciada. Por isso o `rtc.js` faz uma chamada de mentira
+  contra si mesmo antes de mandar H.264 para alguém.
+- **Apagar `encodings[0].codec` não desfaz a escolha.** Medido: depois de
+  `delete`, o fluxo continuou saindo em H.264, o que tornaria o recuo
+  decorativo e deixaria a tela preta para sempre. Nomeie o VP8 de volta.
+- **`setParameters` exige os parâmetros da leitura MAIS RECENTE.** Duas
+  chamadas se cruzando — a qualidade e a troca de codec — fazem a segunda
+  falhar com `DOMException` e o ajuste some sem ninguém notar. Há um escritor
+  único por emissor, em fila, por isso.
+- **Trocar de codec por `encodings[].codec` não renegocia**, porque não mexe no
+  SDP. Já `setCodecPreferences` não dispara `negotiationneeded` sozinho: se
+  você mexer nele, a oferta tem que ser sua, ou a mudança fica só no objeto
+  local.
+- **Tela não é vídeo.** O padrão é 30 fps, não 60: o que se compartilha fica
+  parado a maior parte do tempo e o que importa é texto legível. Medido a 720p
+  com 2 espectadores, 60 fps custava 14,1% de CPU entregando 48; 30 fps custa
+  8,9% entregando 27 — e o bitrate cai de 2,5 para 1,5 Mbps **por espectador**.
+  Aqui isso multiplica, porque a malha codifica a mesma tela uma vez para cada
+  pessoa.
+- **`framesReceived` subindo com `framesDecoded` parado em zero** é tela preta
+  com som normal, e não tem nada a ver com máquina lenta. É o primeiro ramo do
+  diagnóstico em `conexao.js`; antes dele existir, o painel mandava a pessoa
+  fechar abas, que não faz decodificador nenhum aceitar um formato.
+
 ### App de mesa e áudio
 
 - **`desktopCapturer.getSources()` faz coisas opostas conforme a sessão.** No

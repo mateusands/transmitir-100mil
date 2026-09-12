@@ -37,6 +37,11 @@
       <span id="contagem" class="contagem" title="pessoas na chamada">
         <span data-icone="users"></span><span id="contagem-n">1</span>
       </span>
+      <button id="btn-conexao" type="button" class="botao botao-secundario botao-so-icone"
+              title="qualidade da conexão" aria-label="qualidade da conexão"
+              aria-haspopup="dialog" aria-expanded="false">
+        <span data-icone="wifi"></span>
+      </button>
       <button id="copiar" type="button" class="botao botao-secundario">
         <span data-icone="copy"></span><span class="rotulo-botao">Copiar link</span>
       </button>
@@ -87,6 +92,10 @@
   </footer>
 
   <div id="menu" class="menu" role="menu" hidden></div>
+  <div id="painel-conexao" class="menu" role="dialog" aria-label="qualidade da conexão" hidden>
+    <div class="menu-nome">Conexão</div>
+    <div id="conexao-lista"></div>
+  </div>
   <div id="painel-qualidade" class="menu" role="dialog" aria-label="qualidade da transmissão" hidden>
     <div class="menu-nome">Qualidade da tela</div>
     <div class="menu-campo">
@@ -100,9 +109,9 @@
     <div class="menu-campo">
       <label for="fps-tela">Quadros por segundo</label>
       <select id="fps-tela" class="qualidade">
-        <option value="60" selected>60 fps</option>
-        <option value="30">30 fps</option>
         <option value="15">15 fps</option>
+        <option value="30" selected>30 fps (padrão)</option>
+        <option value="60">60 fps</option>
       </select>
     </div>
     <hr>

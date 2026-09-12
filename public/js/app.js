@@ -7,13 +7,14 @@
    de quem só está falando. */
 
 import * as rtc from './rtc.js';
+import * as conexao from './conexao.js';
 import { icone } from './icones.js';
 
 // exposto só pra depurar pelo console do navegador (ver resolução/bitrate
 // reais saindo com stats.getStats()) — nada aqui é usado pela interface.
 // Só em localhost: quem assiste pelo link público não precisa disso, e
 // chrome://webrtc-internals já cobre o mesmo debug de qualquer lugar.
-if (location.hostname === 'localhost') window.__rtc = rtc;
+if (location.hostname === 'localhost') { window.__rtc = rtc; window.__conexao = conexao; }
 
 const $ = id => document.getElementById(id);
 
@@ -68,7 +69,7 @@ $('resolucao-tela').addEventListener('change', () => {
   localStorage.setItem('transmissor:resolucao', $('resolucao-tela').value);
 });
 
-$('fps-tela').value = localStorage.getItem('transmissor:fps') || '60';
+$('fps-tela').value = localStorage.getItem('transmissor:fps') || '30';
 $('fps-tela').addEventListener('change', () => {
   localStorage.setItem('transmissor:fps', $('fps-tela').value);
 });
@@ -102,6 +103,9 @@ $('form-entrar').addEventListener('submit', async e => {
     socket.on('connect', () => { if (entrou) rtc.entrar(SALA, nomeAtual); });
 
     rtc.entrar(SALA, nomeAtual);
+    /* Começa a medir junto com a chamada: o diagnóstico compara amostras, e
+       quem só liga a medição depois que alguém reclama já perdeu o antes. */
+    conexao.observar();
   } catch (e) {
     console.error(e);
     voltarParaEntrada();
@@ -179,9 +183,131 @@ function fecharPainelQualidade() {
   focoAntesDoPainel = null;
 }
 
+/* ---------- painel de conexão ---------- */
+
+/* Um ícone só, que só muda de cor quando há o que dizer, e um painel que
+   abre no clique. "Está travando" é a reclamação mais comum da chamada, e
+   antes disto a única resposta possível era adivinhar. */
+const painelConexao = $('painel-conexao');
+let atualizaConexao = null;
+
+function linhaConexao(nome, numeros, aviso, ruim) {
+  const linha = document.createElement('div');
+  linha.className = 'conexao-linha';
+
+  const cabeca = document.createElement('div');
+  cabeca.className = 'conexao-cabeca';
+  const quem = document.createElement('span');
+  quem.className = 'conexao-nome';
+  quem.textContent = nome;
+  const nums = document.createElement('span');
+  nums.className = 'conexao-numeros';
+  nums.textContent = numeros;
+  cabeca.append(quem, nums);
+  linha.append(cabeca);
+
+  if (aviso) {
+    const texto = document.createElement('div');
+    texto.className = 'conexao-diagnostico' + (ruim ? ' ruim' : '');
+    texto.textContent = aviso;
+    linha.append(texto);
+  }
+  return linha;
+}
+
+function nota(texto) {
+  const div = document.createElement('div');
+  div.className = 'conexao-nota';
+  div.textContent = texto;
+  return div;
+}
+
+/**
+ * Redesenha a lista e a cor do ícone.
+ *
+ * Roda mesmo com o painel fechado, porque é ela que decide se o ícone fica
+ * vermelho — o aviso precisa aparecer sem ninguém ter clicado em nada.
+ */
+function desenharConexao() {
+  const outros = participantes().filter(p => !p.local);
+  const lista = $('conexao-lista');
+  const filhos = [];
+  let algumRuim = false;
+
+  if (!outros.length) {
+    filhos.push(nota('Só você na chamada.'));
+  } else {
+    for (const p of outros) {
+      if (['failed', 'disconnected'].includes(p.conexao)) {
+        filhos.push(linhaConexao(p.nome, 'sem conexão', 'A conexão com esta pessoa caiu. O navegador tenta refazer sozinho.', true));
+        algumRuim = true;
+        continue;
+      }
+      /* Sem mídia a conexão nem chega a existir — medido: zero transceptores,
+         estado `new`, e o relatório traz só `peer-connection`. Um traço sozinho
+         aqui parece defeito; dizer por que não há número é mais honesto. */
+      if (p.conexao !== 'connected') {
+        filhos.push(linhaConexao(p.nome, 'sem mídia',
+          'A conexão só se forma quando alguém liga o microfone ou compartilha a tela.', false));
+        continue;
+      }
+      const d = conexao.diagnostico(p.sid);
+      if (!d) { filhos.push(linhaConexao(p.nome, 'medindo…', null, false)); continue; }
+
+      const partes = [];
+      if (d.pingMs !== null) partes.push(`${d.pingMs} ms`);
+      if (d.perda !== null) partes.push(`${(d.perda * 100).toFixed(1)}% perda`);
+      // o caminho só é dito quando NÃO é o direto: dizer "direto" sempre é ruído
+      if (d.caminho && !d.direto) partes.push(d.caminho);
+      /* Só mostramos o diagnóstico quando ele acusa alguém, ou quando a
+         qualidade escolhida deixou de caber no cano. "Conexão saudável" escrito
+         o tempo todo é ruído que ensina a ignorar o painel. */
+      let aviso = d.culpa ? d.texto : null;
+      if (!aviso && d.apertado) aviso = 'A qualidade escolhida está no limite do que o seu envio aguenta.';
+      if (d.culpa) algumRuim = true;
+
+      filhos.push(linhaConexao(p.nome, partes.join(' · ') || '—', aviso, !!d.culpa));
+    }
+  }
+
+  // com o painel fechado só a cor do ícone importa; montar a lista seria
+  // trabalho jogado fora a cada quadro de renderização
+  if (!painelConexao.hidden) lista.replaceChildren(...filhos);
+  $('btn-conexao').dataset.estado = algumRuim ? 'ruim' : 'ok';
+}
+
+function abrirPainelConexao(ancora) {
+  focoAntesDoPainel = document.activeElement;
+  desenharConexao();
+  painelConexao.hidden = false;
+  ancora.setAttribute('aria-expanded', 'true');
+  const a = ancora.getBoundingClientRect();
+  const p = painelConexao.getBoundingClientRect();
+  painelConexao.style.left = Math.max(8, Math.min(a.left, innerWidth - p.width - 8)) + 'px';
+  painelConexao.style.top = (a.bottom + 8) + 'px';
+  // os números mudam sozinhos: painel aberto que congela parece defeito
+  atualizaConexao = setInterval(desenharConexao, 2000);
+  desenharConexao();   // com o painel já visível, agora a lista é montada
+}
+
+function fecharPainelConexao() {
+  if (painelConexao.hidden) return;
+  painelConexao.hidden = true;
+  $('btn-conexao').setAttribute('aria-expanded', 'false');
+  if (atualizaConexao) { clearInterval(atualizaConexao); atualizaConexao = null; }
+  if (focoAntesDoPainel && document.contains(focoAntesDoPainel)) focoAntesDoPainel.focus();
+  focoAntesDoPainel = null;
+}
+
+$('btn-conexao').addEventListener('click', () => {
+  if (painelConexao.hidden) abrirPainelConexao($('btn-conexao'));
+  else fecharPainelConexao();
+});
+
 function fecharPopups() {
   fecharMenu();
   fecharPainelQualidade();
+  fecharPainelConexao();
 }
 
 $('btn-tela').addEventListener('click', () => compartilhar());
@@ -412,6 +538,17 @@ async function alternarFora(nome) {
  * O clique alterna a seleção e chama ligar com o conjunto novo
  * SEM fechar o menu e SEM reconstruí-lo, atualizando apenas esta linha.
  */
+/* O nome que o PipeWire dá ao fluxo nem sempre é o nome do programa: o Discord
+   registra o dele como "WEBRTC VoiceEngine". Quem lê o menu precisa reconhecer
+   o programa que quer tirar da transmissão, então o binário entra junto quando
+   o nome não o contém. A identidade continua sendo `nome` — é a chave gravada
+   em foraDoSom e nos escolhidos, e renomear quebraria a escolha já salva. */
+function rotuloDoApp(nome, binario) {
+  if (!binario) return nome;
+  const cru = t => t.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return cru(nome).includes(cru(binario)) ? nome : `${nome} (${binario})`;
+}
+
 function itemAppCaixa(app, apps) {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -420,13 +557,14 @@ function itemAppCaixa(app, apps) {
 
   const marcado = alvoDoSom instanceof Set && alvoDoSom.has(app.nome);
   const bloqueado = foraDoSom.has(app.nome);
+  const rotulo = rotuloDoApp(app.nome, app.binario);
 
   btn.setAttribute('aria-checked', String(marcado));
   btn.disabled = bloqueado;
   if (bloqueado) {
-    btn.title = `${app.nome} (marcado como nunca levar)`;
+    btn.title = `${rotulo} (marcado como nunca levar)`;
   } else {
-    btn.title = marcado ? `Deixar de levar o som de ${app.nome}` : `Levar o som de ${app.nome}`;
+    btn.title = marcado ? `Deixar de levar o som de ${rotulo}` : `Levar o som de ${rotulo}`;
   }
 
   const spanIcone = document.createElement('span');
@@ -434,7 +572,7 @@ function itemAppCaixa(app, apps) {
   spanIcone.append(icone(spanIcone.dataset.icone));
 
   const spanTexto = document.createElement('span');
-  spanTexto.textContent = app.nome;
+  spanTexto.textContent = rotulo;
   btn.append(spanIcone, spanTexto);
 
   btn.addEventListener('click', async e => {
@@ -459,8 +597,8 @@ function itemAppCaixa(app, apps) {
 
     trocarIcone(btn, novoMarcado ? 'check-square' : 'square');
     btn.setAttribute('aria-checked', String(novoMarcado));
-    btn.title = novoMarcado ? `Deixar de levar o som de ${app.nome}` : `Levar o som de ${app.nome}`;
-    spanTexto.textContent = app.nome;
+    btn.title = novoMarcado ? `Deixar de levar o som de ${rotulo}` : `Levar o som de ${rotulo}`;
+    spanTexto.textContent = rotulo;
 
     const ids = idsParaLigar(apps);
     await aplicarAlvo(ids);
@@ -495,11 +633,15 @@ async function itensDeSom() {
      haveria como desfazer depois que o programa fecha. */
   if (alvoDoSom === 'tudo') {
     const nomes = [...new Set([...apps.map(a => a.nome), ...foraDoSom])];
+    /* Quem está excluído sem estar tocando não tem binário para consultar:
+       o rótulo cai no nome gravado, que foi o que a pessoa viu ao excluir. */
+    const binarios = new Map(apps.map(a => [a.nome, a.binario]));
     if (nomes.length) itens.push(document.createElement('hr'));
     for (const nome of nomes) {
       const fora = foraDoSom.has(nome);
+      const rotulo = rotuloDoApp(nome, binarios.get(nome));
       itens.push(itemBotao(fora ? 'volume-2' : 'volume-x',
-        fora ? `Voltar a levar ${nome}` : `Nunca levar ${nome}`,
+        fora ? `Voltar a levar ${rotulo}` : `Nunca levar ${rotulo}`,
         () => alternarFora(nome)));
     }
   }
@@ -710,6 +852,10 @@ document.addEventListener('click', e => {
     && !e.target.closest('#btn-tela, #btn-qualidade, #vazio-compartilhar')) {
     fecharPainelQualidade();
   }
+  if (!painelConexao.hidden && !painelConexao.contains(e.target)
+    && !e.target.closest('#btn-conexao')) {
+    fecharPainelConexao();
+  }
 });
 palco.addEventListener('scroll', fecharPopups);
 window.addEventListener('resize', fecharPopups);
@@ -769,6 +915,7 @@ function renderizar() {
   // se a tela caiu (ex.: botão nativo do navegador) com o painel de ajuste
   // ao vivo aberto, ele não faz mais sentido — fecha
   if (!painelQualidade.hidden && !rtc.eu.tela) fecharPainelQualidade();
+  desenharConexao();
   atualizarBotao($('btn-mic'), rtc.eu.mic, {
     ligado: ['mic', 'Desligar microfone'],
     desligado: ['mic-off', 'Ligar microfone'],
@@ -997,6 +1144,7 @@ function inicial(nome) {
 }
 
 function voltarParaEntrada() {
+  conexao.parar();
   fecharMenu();
   focado = null;
   entrou = false;

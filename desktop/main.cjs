@@ -22,6 +22,21 @@ const som = require('./som.cjs');
 
 const RAIZ = path.join(__dirname, '..');
 const PORTA = Number(process.env.PORT) || 3000;
+
+/* Deixa o Chromium oferecer encoder de vídeo por hardware.
+
+   Sem isto só existe encoder por software, e o custo é por espectador: a malha
+   codifica a mesma tela uma vez para cada pessoa na sala. Quem mostra um jogo
+   sentia isso como travamento.
+
+   Tem que vir antes do `whenReady`: depois o processo de GPU já subiu e o
+   switch não vale mais. O nome é este mesmo — `VaapiVideoEncoder` foi removido
+   do Chromium, passá-lo hoje não dá erro, só não faz nada.
+
+   Ligar o encoder não basta: quem decide usar a GPU é o codec escolhido, no
+   `rtc.js`. Nenhuma GPU codifica VP8. */
+app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoEncoder');
+
 const ENDERECO = process.env.TRANSMISSOR_URL || `http://localhost:${PORTA}`;
 
 /**

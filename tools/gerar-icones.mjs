@@ -52,7 +52,7 @@ const USADOS = [
   'volume-2', 'volume-x',
   'maximize', 'minimize', 'expand',
   'users', 'copy', 'check', 'log-out',
-  'monitor-off', 'circle-alert', 'loader-circle', 'speaker', 'settings',
+  'monitor-off', 'circle-alert', 'loader-circle', 'speaker', 'settings', 'wifi',
   'square', 'check-square',
 ];
 
