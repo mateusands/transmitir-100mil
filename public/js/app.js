@@ -660,14 +660,22 @@ async function itensDeSom() {
 $('btn-sair').addEventListener('click', () => { rtc.sair(); voltarParaEntrada(); });
 
 $('copiar').addEventListener('click', async () => {
-  const link = await linkDaSala();
-  const rotulo = $('copiar').querySelector('.rotulo-botao');
-  if (await copiarTexto(link)) {
-    trocarIcone($('copiar'), 'check');
-    rotulo.textContent = 'Copiado';
-    setTimeout(() => { trocarIcone($('copiar'), 'copy'); rotulo.textContent = 'Copiar link'; }, 1600);
-  } else {
-    avisar('sala', 'O link é ' + link);
+  const botao = $('copiar');
+  const rotulo = botao.querySelector('.rotulo-botao');
+  botao.disabled = true;
+  rotulo.textContent = 'Preparando link…';
+  try {
+    const link = await linkDaSala();
+    if (await copiarTexto(link)) {
+      trocarIcone(botao, 'check');
+      rotulo.textContent = 'Copiado';
+      setTimeout(() => { trocarIcone(botao, 'copy'); rotulo.textContent = 'Copiar link'; }, 1600);
+    } else {
+      rotulo.textContent = 'Copiar link';
+      avisar('sala', 'O link é ' + link);
+    }
+  } finally {
+    botao.disabled = false;
   }
 });
 
@@ -675,12 +683,17 @@ $('copiar').addEventListener('click', async () => {
  * Consultar ao clicar cobre a breve janela entre subir o servidor e o
  * cloudflared terminar de criar o endereço, sem trocar o convite por localhost. */
 async function linkDaSala() {
-  try {
-    const resposta = await fetch('/api/config', { cache: 'no-store' });
-    const dados = resposta.ok && await resposta.json();
-    if (dados?.url_publica) return dados.url_publica;
-  } catch { /* sem servidor: o aviso abaixo ainda mostra a origem aberta */ }
-  return location.origin;
+  while (true) {
+    try {
+      const resposta = await fetch('/api/config', { cache: 'no-store' });
+      const dados = resposta.ok && await resposta.json();
+      if (dados?.url_publica) return dados.url_publica;
+      // npm start e o app sem hospedagem não marcam túnel: nesses casos a
+      // origem aberta é exatamente o endereço que deve ser compartilhado.
+      if (!dados?.tunel_publico) return location.origin;
+    } catch { return location.origin; }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
 }
 
 /** Electron não implementa `prompt()`: o fallback antigo sumia no clique. */
