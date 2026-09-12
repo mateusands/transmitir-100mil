@@ -13,6 +13,11 @@ let socket = null;
 let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
 let aoMudar = () => {};
 
+/* `aoMudar` diz "algo mudou, redesenhe" e não serve para som: quando ele
+   dispara, a diferença já aconteceu e não dá para saber QUAL foi. Avisos
+   sonoros precisam do acontecimento, não do estado depois dele. */
+let aoAcontecer = () => {};
+
 /** sid -> { sid, nome, pc, polite, midias, meta, tela, mic, conexao } */
 export const peers = new Map();
 
@@ -68,9 +73,24 @@ const BITRATE_TELA = {
 // da tabela, então tem que ser o mesmo padrão, não um valor menor à parte
 const BITRATE_PADRAO = BITRATE_TELA['720p'][30];
 
+/* O tipo de conteúdo decide DOIS parâmetros, nunca um.
+
+   Medido na mesma cena com movimento e 3 espectadores: `detail` custou 10,2% de
+   CPU entregando 1280 px de largura; `motion` custou 5,8% entregando 427. Quase
+   toda a economia veio de o encoder ter derrubado a resolução — e quem autoriza
+   isso é o `degradationPreference` que anda junto, não o hint. Trocar um sem o
+   outro deixa escolher "jogo" e mesmo assim borrar texto, ou "texto" e engasgar
+   o jogo. Por isso são um par, e não duas opções. */
+const CONTEUDO_TELA = {
+  texto: { hint: 'detail', degradacao: 'maintain-resolution' },
+  jogo:  { hint: 'motion', degradacao: 'maintain-framerate' },
+};
+const CONTEUDO_PADRAO = 'texto';
+
 let bitrateTela = BITRATE_PADRAO;
 let escalaTela = 1;
 let resolucaoAtual = '720p';
+let conteudoAtual = CONTEUDO_PADRAO;
 
 /* Quanto reduzir em relação ao que o navegador REALMENTE capturou — não ao
    que foi pedido, já que os dois podem ser bem diferentes. Nunca aumenta
@@ -82,6 +102,21 @@ function calcularEscala(track, resolucao) {
   const larguraNativa = nativa.width || dims.largura;
   const alturaNativa = nativa.height || dims.altura;
   return Math.max(1, larguraNativa / dims.largura, alturaNativa / dims.altura);
+}
+
+/* O único lugar que decide qual qualidade vale agora.
+
+   Os dois caminhos que mudam qualidade — começar a compartilhar e trocar no
+   meio — faziam estas mesmas linhas cada um por conta própria. Eram três
+   idênticas, e passaram a ser cinco quando o tipo de conteúdo entrou: duas
+   cópias divergindo é questão de tempo, e a divergência aqui aparece como
+   "escolhi jogo e continua borrando", que ninguém liga ao lugar certo. */
+function fixarQualidade(track, { resolucao, fps, conteudo }) {
+  resolucaoAtual = resolucao;
+  conteudoAtual = CONTEUDO_TELA[conteudo] ? conteudo : CONTEUDO_PADRAO;
+  bitrateTela = BITRATE_TELA[resolucao]?.[fps] ?? BITRATE_PADRAO;
+  escalaTela = calcularEscala(track, resolucao);
+  track.contentHint = CONTEUDO_TELA[conteudoAtual].hint;
 }
 
 /* A janela ou aba compartilhada pode mudar de tamanho no meio da
@@ -130,17 +165,19 @@ function ajustarQualidadeTela(sender) {
   return aplicarNoEmissor(sender, params => {
     params.encodings[0].maxBitrate = bitrateTela;
     params.encodings[0].scaleResolutionDownBy = escalaTela;
-    // quando a rede aperta, cede um pouco de resolução e um pouco de fps
-    // junto, em vez de zerar uma das duas pra proteger a outra
-    params.degradationPreference = 'balanced';
+    /* O que ceder quando aperta vem do tipo de conteúdo: texto engasga mas não
+       borra, jogo borra mas não engasga. O `balanced` que ficava aqui cedia as
+       duas coisas e não protegia nenhuma. */
+    params.degradationPreference = CONTEUDO_TELA[conteudoAtual].degradacao;
   });
 }
 
 /* ================= ciclo de vida ================= */
 
-export function iniciar(sock, config, callback) {
+export function iniciar(sock, config, callback, aoEvento) {
   socket = sock;
   aoMudar = callback || (() => {});
+  aoAcontecer = aoEvento || (() => {});
   if (config?.ice_servers?.length) iceServers = config.ice_servers;
 
   socket.on('sala', ({ sala, eu: meu, peers: lista }) => {
@@ -155,10 +192,16 @@ export function iniciar(sock, config, callback) {
   socket.on('peer_entrou', ({ peer }) => {
     // o novo vai ofertar pra gente; aqui só preparamos a conexão
     criarPeer(peer, { iniciar: false });
+    aoAcontecer('entrou', peer.nome);
     aoMudar();
   });
 
-  socket.on('peer_saiu', ({ sid }) => { fecharPeer(sid); aoMudar(); });
+  socket.on('peer_saiu', ({ sid }) => {
+    const nome = peers.get(sid)?.nome;
+    fecharPeer(sid);
+    if (nome) aoAcontecer('saiu', nome);
+    aoMudar();
+  });
 
   socket.on('peer_estado', ({ sid, tela, mic, tela_id, mic_id }) => {
     const p = peers.get(sid);
@@ -304,7 +347,9 @@ function provarH264() {
       }, 33);
 
       const faixa = tela.captureStream(30).getVideoTracks()[0];
-      faixa.contentHint = 'detail';
+      // o mesmo hint da transmissão de verdade: provar um encoder e usar outro
+      // devolveria um veredito sobre um caminho que ninguém percorre
+      faixa.contentHint = CONTEUDO_TELA[conteudoAtual].hint;
       a = new RTCPeerConnection();
       b = new RTCPeerConnection();
       a.onicecandidate = e => e.candidate && b.addIceCandidate(e.candidate);
@@ -443,6 +488,9 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
     meta: { telaId: info.tela_id || null, micId: info.mic_id || null },
     tela: !!info.tela,
     mic: !!info.mic,
+    /* null = ainda não disse nada. Diferente de false, que é "disse que parou":
+       sem a distinção, quem acabou de entrar contaria como "parou de ver". */
+    vendo: null,
     conexao: 'novo',
   };
   peers.set(info.sid, peer);
@@ -492,6 +540,24 @@ function criarPeer(info, { iniciar: souEuQueOferto }) {
       }
     }
     midia.addTrack(track);
+
+    /* Aviso de "estou vendo" — o que no Discord é o clique em assistir.
+
+       Aqui ninguém clica: quem está na sala recebe a tela sozinho. Então o
+       fato equivalente é a IMAGEM TER CHEGADO, e quem sabe disso é só quem
+       recebe. Por isso a descoberta viaja de volta pelo canal de sinalização:
+       quem compartilha não tem como medir daqui que a tela apareceu na
+       máquina do outro.
+
+       A faixa nasce `muted` e desmuta no primeiro quadro — é esse instante, e
+       não a chegada da faixa, que significa "apareceu na tela dele". */
+    if (track.kind === 'video') {
+      const contar = vendo => enviar(peer.sid, { vendo });
+      if (!track.muted) contar(true);
+      track.addEventListener('unmute', () => contar(true));
+      track.addEventListener('mute', () => contar(false));
+      track.addEventListener('ended', () => contar(false));
+    }
 
     track.onended = () => {
       try { midia.removeTrack(track); } catch {}
@@ -547,6 +613,14 @@ async function tratarSinal(de, dados) {
         await pc.setLocalDescription();
         enviar(de, { desc: pc.localDescription });
       }
+    } else if (typeof dados.vendo === 'boolean') {
+      /* Só interessa enquanto EU compartilho: fora disso o aviso é de uma
+         tela que não é minha, e tocaria som por conta de outra pessoa. */
+      if (eu.tela && peer.vendo !== dados.vendo) {
+        peer.vendo = dados.vendo;
+        aoAcontecer(dados.vendo ? 'vendo' : 'parouDeVer', peer.nome);
+        aoMudar();
+      }
     } else if (dados.naoDecodifica) {
       /* Quem assiste não conseguiu decodificar o que mandamos. Não há o que
          negociar: o codec sai de cena para todos, e para o resto da sessão. */
@@ -570,21 +644,29 @@ async function tratarSinal(de, dados) {
  * Devolve { audioDescartado } pra a interface avisar quando o áudio pedido
  * não foi enviado por causa do que está descrito no bloco abaixo.
  */
-export async function alternarTela({ resolucao = '720p', fps = 30 } = {}) {
+export async function alternarTela({ resolucao = '720p', fps = 30, conteudo = CONTEUDO_PADRAO } = {}) {
   if (telaStream) { pararTela(); publicarEstado(); aoMudar(); return null; }
 
-  // sem width/height: pedir isso pro getDisplayMedia não é respeitado pela
-  // maioria dos navegadores em captura de tela. Pega a nativa e reduz depois
-  // via scaleResolutionDownBy, que é garantido.
+  /* Pedir largura/altura aqui VALE a pena, ao contrário do que este comentário
+     dizia antes. Medido: pedindo 1280x720 numa tela de 1920x1080, o Chromium
+     devolveu exatamente 1280x720, com `resizeMode: crop-and-scale`.
+
+     A diferença importa na malha: reduzir aqui acontece UMA vez, na captura;
+     reduzir por `scaleResolutionDownBy` acontece uma vez POR ENCODER, e há um
+     encoder por espectador. O `scaleResolutionDownBy` continua abaixo como rede
+     de proteção para quem ignorar o pedido — onde ele for respeitado, a escala
+     dá 1 sozinha e não custa nada. */
+  const dims = RESOLUCOES_TELA[resolucao] || RESOLUCOES_TELA['720p'];
   telaStream = await navigator.mediaDevices.getDisplayMedia({
-    video: { frameRate: { ideal: fps, max: fps } },
+    video: {
+      width: { ideal: dims.largura },
+      height: { ideal: dims.altura },
+      frameRate: { ideal: fps, max: fps },
+    },
     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
   });
 
   const track = telaStream.getVideoTracks()[0];
-  // sinaliza pro codec priorizar nitidez (texto, janelas) em vez de
-  // suavidade de movimento — é vídeo de tela, não webcam
-  track.contentHint = 'detail';
 
   /* O áudio do getDisplayMedia só vem recortado pro que está na tela quando a
      pessoa compartilha uma ABA do Chrome — aí a caixinha é "áudio da aba".
@@ -602,9 +684,12 @@ export async function alternarTela({ resolucao = '720p', fps = 30 } = {}) {
     telaStream.removeTrack(audioTrack);
   }
 
-  resolucaoAtual = resolucao;
-  bitrateTela = BITRATE_TELA[resolucao]?.[fps] ?? BITRATE_PADRAO;
-  escalaTela = calcularEscala(track, resolucao);
+  fixarQualidade(track, { resolucao, fps, conteudo });
+
+  /* Cada compartilhamento conta de novo. Sem isto, quem já estava marcado como
+     vendo continuaria marcado depois de parar e recomeçar — e o aviso de que a
+     imagem chegou nunca mais tocaria para essa pessoa. */
+  for (const peer of peers.values()) peer.vendo = null;
 
   // parar pelo botão nativo do navegador tem que refletir na interface
   track.addEventListener('ended', () => {
@@ -626,20 +711,29 @@ export async function alternarTela({ resolucao = '720p', fps = 30 } = {}) {
 }
 
 /**
- * Troca resolução/fps/bitrate de uma captura já em andamento, sem reabrir o
- * diálogo do navegador nem derrubar a conexão com quem está assistindo. O fps
- * é o único pedido que applyConstraints costuma respeitar de verdade; a
- * resolução é sempre reforçada depois via scaleResolutionDownBy.
+ * Troca resolução/fps/conteúdo de uma captura já em andamento, sem reabrir o
+ * diálogo do navegador nem derrubar a conexão com quem está assistindo.
  */
-export async function mudarQualidadeTela({ resolucao = '720p', fps = 30 } = {}) {
+export async function mudarQualidadeTela({ resolucao = '720p', fps = 30, conteudo = CONTEUDO_PADRAO } = {}) {
   const track = telaStream?.getVideoTracks()[0];
   if (!track) return;
 
-  await track.applyConstraints({ frameRate: { ideal: fps, max: fps } });
+  /* A restrição recusada não pode abortar o resto: bitrate e escala ainda
+     precisam ser aplicados, e o `scaleResolutionDownBy` sozinho já entrega a
+     resolução pedida. Deixar a exceção subir trocaria uma redução parcial por
+     nenhuma, e a interface diria "não consegui aplicar" com o fps já mudado. */
+  const dims = RESOLUCOES_TELA[resolucao] || RESOLUCOES_TELA['720p'];
+  try {
+    await track.applyConstraints({
+      width: { ideal: dims.largura },
+      height: { ideal: dims.altura },
+      frameRate: { ideal: fps, max: fps },
+    });
+  } catch (e) {
+    console.warn('[rtc] a captura recusou a restrição; a redução fica com o encoder', e);
+  }
 
-  resolucaoAtual = resolucao;
-  bitrateTela = BITRATE_TELA[resolucao]?.[fps] ?? BITRATE_PADRAO;
-  escalaTela = calcularEscala(track, resolucao);
+  fixarQualidade(track, { resolucao, fps, conteudo });
 
   for (const peer of peers.values()) {
     const sender = peer.pc.getSenders().find(s => s.track === track);

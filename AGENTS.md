@@ -223,6 +223,23 @@ passando normal, e ninguém sabendo por quê.
   8,9% entregando 27 — e o bitrate cai de 2,5 para 1,5 Mbps **por espectador**.
   Aqui isso multiplica, porque a malha codifica a mesma tela uma vez para cada
   pessoa.
+- **Pedir largura/altura no `getDisplayMedia` FUNCIONA.** O comentário que dizia
+  o contrário ficou anos no `rtc.js` e manteve a captura na resolução nativa.
+  Medido: pedindo 1280x720 numa tela de 1920x1080, veio exatamente 1280x720, com
+  `resizeMode: crop-and-scale`. Importa porque reduzir na captura acontece UMA
+  vez; reduzir por `scaleResolutionDownBy` acontece uma vez POR ENCODER, e há um
+  encoder por espectador.
+- **`contentHint` sozinho não decide nada — quem decide é o par dele com o
+  `degradationPreference`.** Medido na mesma cena: `detail` custou 10,2% de CPU
+  entregando 1280 px de largura; `motion` custou 5,8% entregando **427**. A
+  economia veio de o encoder ter derrubado a resolução, coisa que o `balanced`
+  autorizava. Por isso os dois andam juntos em `CONTEUDO_TELA`.
+- **`qualityLimitationReason: 'cpu'` é conservador.** Com 3 espectadores a
+  1080p60 e VP8 por software ele ficou em `none` e `qualityLimitationDurations.
+  cpu` em ZERO durante 56 s — a máquina reclamava no `htop` e o WebRTC não. Só
+  com 6 espectadores o sinal apareceu. Ou seja: o teto automático protege do
+  colapso, não do desconforto, e testar com duas ou três pessoas nunca o
+  exercita. Quem for mexer nele precisa de sala cheia de verdade.
 - **`framesReceived` subindo com `framesDecoded` parado em zero** é tela preta
   com som normal, e não tem nada a ver com máquina lenta. É o primeiro ramo do
   diagnóstico em `conexao.js`; antes dele existir, o painel mandava a pessoa

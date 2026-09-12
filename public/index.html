@@ -42,6 +42,10 @@
               aria-haspopup="dialog" aria-expanded="false">
         <span data-icone="wifi"></span>
       </button>
+      <button id="btn-avisos" type="button" class="botao botao-secundario botao-so-icone"
+              title="avisos sonoros" aria-label="avisos sonoros" aria-pressed="true">
+        <span data-icone="bell"></span>
+      </button>
       <button id="copiar" type="button" class="botao botao-secundario">
         <span data-icone="copy"></span><span class="rotulo-botao">Copiar link</span>
       </button>
@@ -112,6 +116,13 @@
         <option value="15">15 fps</option>
         <option value="30" selected>30 fps (padrão)</option>
         <option value="60">60 fps</option>
+      </select>
+    </div>
+    <div class="menu-campo">
+      <label for="conteudo-tela">Conteúdo</label>
+      <select id="conteudo-tela" class="qualidade">
+        <option value="texto" selected>Texto e programas</option>
+        <option value="jogo">Jogo e vídeo</option>
       </select>
     </div>
     <hr>
