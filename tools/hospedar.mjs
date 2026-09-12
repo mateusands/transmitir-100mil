@@ -129,6 +129,9 @@ if (t.erro) {
   console.log('  Dá pra usar assim mesmo em http://localhost:' + porta + ' e na rede local,');
   console.log('  mas compartilhar tela exige https fora de localhost.\n');
 } else {
+  // O servidor entrega esse dado ao botão "Copiar link". A janela local pode
+  // continuar em localhost, mas o convite tem de levar quem recebe ao túnel.
+  servidor?.send?.({ tipo: 'url-publica', url: t.url });
   console.log(`\n${linha}`);
   console.log(`  Endereço da sala:  ${t.url}`);
   console.log(`${linha}\n`);
