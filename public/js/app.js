@@ -64,15 +64,22 @@ pintarIcones(document);
 
 $('nome').value = localStorage.getItem('transmissor:nome') || '';
 
-$('resolucao-tela').value = localStorage.getItem('transmissor:resolucao') || '720p';
-$('resolucao-tela').addEventListener('change', () => {
-  localStorage.setItem('transmissor:resolucao', $('resolucao-tela').value);
-});
+/* Os três campos de qualidade seguem a mesma regra: o valor abre no que a
+   pessoa escolheu da última vez, e cada troca grava. Escrito três vezes, é só
+   questão de tempo até o quarto campo nascer diferente dos outros.
+   O `|| padrao` depois de atribuir não é enfeite: um `<select>` recebendo um
+   valor que não existe mais na lista fica com string vazia em silêncio, e aí a
+   tela abre sem nada escolhido. */
+function lembrarEscolha(id, chave, padrao) {
+  const campo = $(id);
+  campo.value = localStorage.getItem(chave) || padrao;
+  if (!campo.value) campo.value = padrao;
+  campo.addEventListener('change', () => localStorage.setItem(chave, campo.value));
+}
 
-$('fps-tela').value = localStorage.getItem('transmissor:fps') || '30';
-$('fps-tela').addEventListener('change', () => {
-  localStorage.setItem('transmissor:fps', $('fps-tela').value);
-});
+lembrarEscolha('resolucao-tela', 'transmissor:resolucao', '720p');
+lembrarEscolha('fps-tela', 'transmissor:fps', '30');
+lembrarEscolha('conteudo-tela', 'transmissor:conteudo', 'texto');
 
 $('form-entrar').addEventListener('submit', async e => {
   e.preventDefault();
@@ -124,10 +131,12 @@ async function compartilhar() {
 
 async function iniciarTela() {
   try {
-    const resultado = await rtc.alternarTela({
-      resolucao: $('resolucao-tela').value,
-      fps: Number($('fps-tela').value),
-    });
+    /* Um compartilhamento novo começa sem teto: a redução anterior foi sobre
+       uma cena e uma sala que podem não existir mais. O `automaticoDesligado`
+       NÃO se desfaz aqui — quem dispensou o automático dispensou pela sessão. */
+    tetoAutomatico = null;
+    apertosSeguidos = 0;
+    const resultado = await rtc.alternarTela(qualidadeEscolhida());
 
     /* Só acontece no navegador. No app de mesa não chega áudio pelo
        getDisplayMedia — o som vem por aplicativo, e a dica de "compartilhe uma
@@ -144,10 +153,16 @@ async function iniciarTela() {
     return renderizar();
   }
   renderizar();
+  /* O vigia lê medida em cache do conexao.js, não abre getStats. Fica ligado só
+     enquanto há tela indo: sem transmissão não há encoder para sobrecarregar. */
+  if (!vigiaTeto) vigiaTeto = setInterval(verificarTeto, 2000);
   if (somDisponivel) await somAutomatico();
 }
 
 async function pararDeCompartilhar() {
+  if (vigiaTeto) { clearInterval(vigiaTeto); vigiaTeto = null; }
+  tetoAutomatico = null;
+  apertosSeguidos = 0;
   await rtc.alternarTela();
   rtc.desligarSomDaTela();
   await ponteSom?.desligar();
@@ -222,6 +237,130 @@ function nota(texto) {
   return div;
 }
 
+/* ================= teto automático ================= */
+
+/* Cada espectador é um encode inteiro: medido, 1, 2 e 3 pessoas assistindo dão
+   1, 2 e 3 fluxos codificados, e o custo por quadro sobe junto conforme os
+   encoders disputam CPU. Até aqui nada reagia a isso — o limite de 8 da sala
+   era teórico, e a imagem simplesmente se desfazia.
+
+   O gatilho é MEDIÇÃO, não contagem de gente: uma máquina forte com 5
+   espectadores não merece ser punida, e uma fraca com 2 precisa de ajuda. Quem
+   já sabe disso é o `conexao.js`, que acusa `quem-transmite` quando o WebRTC
+   diz `qualityLimitationReason: cpu`. Aqui só lemos o veredito dele — abrir um
+   segundo laço de getStats mediria a mesma coisa duas vezes. */
+const DEGRAUS_FPS = [60, 30, 15];
+const DEGRAUS_RESOLUCAO = ['1440p', '1080p', '720p'];
+
+/* Três amostras de 2 s: um pico isolado ao abrir uma janela não é motivo para
+   mexer na qualidade de todo mundo. */
+const AMOSTRAS_ATE_BAIXAR = 3;
+
+let tetoAutomatico = null;     // { resolucao, fps } enquanto houver redução
+let automaticoDesligado = false;
+let apertosSeguidos = 0;
+let vigiaTeto = null;
+
+/* A escolha da pessoa, num lugar só. Dois caminhos leem isto — começar a
+   compartilhar e aplicar no meio — e o campo de conteúdo acabou de entrar:
+   ler os selects em cada ponto é como um deles fica para trás. */
+function qualidadeEscolhida() {
+  return {
+    resolucao: $('resolucao-tela').value,
+    fps: Number($('fps-tela').value),
+    conteudo: $('conteudo-tela').value,
+  };
+}
+
+/** O que vale de verdade: a escolha, com o teto por cima quando existe. */
+function qualidadeAtual() {
+  return { ...qualidadeEscolhida(), ...(tetoAutomatico || {}) };
+}
+
+async function aplicarTeto(alvo, motivo) {
+  /* O degrau anterior é guardado, não descartado: se este não pegar, quem vale
+     é o que já estava valendo. Zerar o teto aqui faria a nota sumir com o
+     encoder ainda reduzido — a interface dizendo uma coisa e a transmissão
+     fazendo outra. */
+  const anterior = tetoAutomatico;
+  tetoAutomatico = alvo;
+  try {
+    await rtc.mudarQualidadeTela(qualidadeAtual());
+  } catch (e) {
+    // sem aviso na tela: quem não pediu a mudança não deve receber o erro dela
+    console.error('[app] falha ao aplicar o teto automático', e);
+    tetoAutomatico = anterior;
+    return;
+  }
+  // só depois de aplicado de verdade — anunciar antes seria anunciar intenção
+  console.info(`[app] qualidade reduzida para ${alvo.resolucao}/${alvo.fps} fps — ${motivo}`);
+  renderizar();
+}
+
+/* Desce UM degrau: primeiro o fps, que é o que mais custa, e só depois a
+   resolução. Nunca dois de uma vez — a queda ficaria visível como um tranco. */
+function descerUmDegrau() {
+  const { resolucao, fps } = qualidadeAtual();
+
+  const iFps = DEGRAUS_FPS.indexOf(fps);
+  if (iFps >= 0 && iFps < DEGRAUS_FPS.length - 1) {
+    return aplicarTeto({ resolucao, fps: DEGRAUS_FPS[iFps + 1] }, 'CPU no limite');
+  }
+
+  const iRes = DEGRAUS_RESOLUCAO.indexOf(resolucao);
+  if (iRes >= 0 && iRes < DEGRAUS_RESOLUCAO.length - 1) {
+    return aplicarTeto({ resolucao: DEGRAUS_RESOLUCAO[iRes + 1], fps }, 'CPU no limite');
+  }
+  /* Já no degrau mais baixo. Não há o que descer, e zerar a contagem toda vez
+     manteria a nota do painel viva dizendo que algo vai acontecer. */
+}
+
+/**
+ * Só desce, nunca sobe.
+ *
+ * Subir de volta assim que a CPU alivia entra em ciclo: baixa, alivia, sobe,
+ * aperta de novo — e cada volta repinta a imagem de todo mundo. Um novo
+ * compartilhamento começa limpo, que é quando a subida faz sentido.
+ */
+function verificarTeto() {
+  if (automaticoDesligado || !rtc.eu.tela) return;
+
+  const sobrecarregado = participantes()
+    .some(p => !p.local && conexao.diagnostico(p.sid)?.culpa === 'quem-transmite');
+
+  apertosSeguidos = sobrecarregado ? apertosSeguidos + 1 : 0;
+  if (apertosSeguidos < AMOSTRAS_ATE_BAIXAR) return;
+  apertosSeguidos = 0;
+  descerUmDegrau();
+}
+
+/* A pessoa retomando o controle: o teto sai, a escolha dela volta a valer, e o
+   automático se cala pelo resto da sessão. Sem esta saída, a redução seria uma
+   decisão do app que ninguém pediu nem consegue desfazer. */
+async function dispensarTeto() {
+  automaticoDesligado = true;
+  tetoAutomatico = null;
+  apertosSeguidos = 0;
+  try { await rtc.mudarQualidadeTela(qualidadeAtual()); }
+  catch (e) { avisar('sala', 'Não consegui voltar a qualidade: ' + e.message); }
+  renderizar();
+}
+
+function notaDoTeto() {
+  const div = document.createElement('div');
+  div.className = 'conexao-nota conexao-teto';
+  const escolhido = qualidadeEscolhida();
+  div.append(`Qualidade reduzida para ${tetoAutomatico.fps} fps `
+    + `(${tetoAutomatico.resolucao}) para a sua máquina dar conta.`);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'conexao-acao';
+  btn.textContent = `Manter ${escolhido.fps} fps assim mesmo`;
+  btn.addEventListener('click', dispensarTeto);
+  div.append(btn);
+  return div;
+}
+
 /**
  * Redesenha a lista e a cor do ícone.
  *
@@ -233,6 +372,10 @@ function desenharConexao() {
   const lista = $('conexao-lista');
   const filhos = [];
   let algumRuim = false;
+
+  // primeiro de tudo: é a única linha que explica uma mudança que o app fez
+  // sozinho, e ela precisa ser lida antes dos números que a motivaram
+  if (tetoAutomatico) filhos.push(notaDoTeto());
 
   if (!outros.length) {
     filhos.push(nota('Só você na chamada.'));
@@ -316,11 +459,15 @@ $('vazio-compartilhar').addEventListener('click', () => compartilhar());
 
 $('painel-compartilhar').addEventListener('click', async () => {
   fecharPainelQualidade();
+  /* Escolher à mão é retomar o controle: o teto sai e o automático se cala. Sem
+     isto, o app desfaria a escolha na amostra seguinte e a pessoa veria o menu
+     não obedecer. */
+  automaticoDesligado = true;
+  tetoAutomatico = null;
+  apertosSeguidos = 0;
   try {
-    await rtc.mudarQualidadeTela({
-      resolucao: $('resolucao-tela').value,
-      fps: Number($('fps-tela').value),
-    });
+    await rtc.mudarQualidadeTela(qualidadeEscolhida());
+    renderizar();
   } catch (e) {
     avisar('sala', 'Não consegui aplicar a qualidade: ' + e.message);
   }

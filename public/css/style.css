@@ -406,6 +406,33 @@ input:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: -1
 .conexao-diagnostico.ruim { color: #ffb4b6; }
 .conexao-nota { padding: 10px; color: var(--texto-3); font-size: 13px; }
 
+/* A nota do teto não é informação de fundo como as outras: ela explica uma
+   mudança que o app fez sozinho, então tem contraste de texto normal e uma
+   borda que a separa dos números abaixo. */
+.conexao-teto {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--texto);
+  border-bottom: 1px solid var(--borda);
+}
+
+.conexao-acao {
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--r-1);
+  background: none;
+  padding: 5px 10px;
+  color: var(--texto);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transicao);
+}
+
+.conexao-acao:hover { background: var(--sup-3); }
+.conexao-acao:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: 2px; }
+
 .menu-nome {
   display: flex;
   align-items: center;
