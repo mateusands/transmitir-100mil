@@ -660,7 +660,7 @@ async function itensDeSom() {
 $('btn-sair').addEventListener('click', () => { rtc.sair(); voltarParaEntrada(); });
 
 $('copiar').addEventListener('click', async () => {
-  const link = location.origin;
+  const link = await linkDaSala();
   const rotulo = $('copiar').querySelector('.rotulo-botao');
   if (await copiarTexto(link)) {
     trocarIcone($('copiar'), 'check');
@@ -670,6 +670,18 @@ $('copiar').addEventListener('click', async () => {
     avisar('sala', 'O link é ' + link);
   }
 });
+
+/** O servidor só anuncia url_publica quando foi iniciado por `hospedar`.
+ * Consultar ao clicar cobre a breve janela entre subir o servidor e o
+ * cloudflared terminar de criar o endereço, sem trocar o convite por localhost. */
+async function linkDaSala() {
+  try {
+    const resposta = await fetch('/api/config', { cache: 'no-store' });
+    const dados = resposta.ok && await resposta.json();
+    if (dados?.url_publica) return dados.url_publica;
+  } catch { /* sem servidor: o aviso abaixo ainda mostra a origem aberta */ }
+  return location.origin;
+}
 
 /** Electron não implementa `prompt()`: o fallback antigo sumia no clique. */
 async function copiarTexto(texto) {
@@ -1033,6 +1045,8 @@ function desenharTile(p, streamTela) {
     t.tile.title = 'clique para ampliar · duplo clique para tela cheia · botão direito para levar o som';
   }
   t.marcaMudo.hidden = !s?.mudo;
+  t.controleVolume.hidden = p.local;
+  if (!p.local) atualizarControleVolume(t, p, s, !rtc.temSom(streamTela));
 }
 
 function criarTile(p) {
@@ -1069,6 +1083,36 @@ function criarTile(p) {
   rotulo.append(nome, marcaSom, marcaMudo);
   tile.append(rotulo);
 
+  const controleVolume = document.createElement('div');
+  controleVolume.className = 'controle-volume';
+  controleVolume.setAttribute('aria-label', 'volume da transmissão');
+  const botaoVolume = document.createElement('button');
+  botaoVolume.type = 'button';
+  botaoVolume.className = 'botao-volume';
+  const iconeVolume = document.createElement('span');
+  iconeVolume.dataset.icone = 'volume-2';
+  iconeVolume.append(icone('volume-2'));
+  botaoVolume.append(iconeVolume);
+  const volume = document.createElement('input');
+  volume.type = 'range';
+  volume.className = 'barra-volume';
+  volume.min = 0;
+  volume.max = 100;
+  volume.value = 100;
+  volume.setAttribute('orient', 'vertical');
+  const pctVolume = document.createElement('span');
+  pctVolume.className = 'pct-volume';
+  controleVolume.append(botaoVolume, volume, pctVolume);
+
+  /* O controle vive dentro da tile, mas não pode transformar um ajuste de
+     volume em clique para ampliar nem em duplo clique de tela cheia. */
+  for (const tipo of ['click', 'dblclick', 'keydown']) {
+    controleVolume.addEventListener(tipo, e => e.stopPropagation());
+  }
+  botaoVolume.addEventListener('click', () => alternarVolumeDaTela(p.sid));
+  volume.addEventListener('input', () => ajustarVolumeDaTela(p.sid, Number(volume.value) / 100));
+  tile.append(controleVolume);
+
   tile.addEventListener('click', () => focar(p.sid));
   tile.addEventListener('dblclick', () => telaCheia(p.sid));
   tile.addEventListener('keydown', e => {
@@ -1079,7 +1123,7 @@ function criarTile(p) {
     abrirMenu(p.sid, e.clientX, e.clientY);
   });
 
-  return { tile, video, nome, marcaSom, marcaMudo };
+  return { tile, video, nome, marcaSom, marcaMudo, controleVolume, botaoVolume, volume, pctVolume };
 }
 
 function removerTile(sid) {
@@ -1114,6 +1158,41 @@ function aplicarSom(sid) {
   const s = somDe(sid);
   el.audioVoz.volume = s.mudo ? 0 : s.voz;
   el.audioTela.volume = s.mudo ? 0 : s.tela;
+}
+
+function ajustarVolumeDaTela(sid, valor) {
+  const s = somDe(sid);
+  s.tela = valor;
+  if (valor > 0) s.telaAntesDeSilenciar = valor;
+  aplicarSom(sid);
+  atualizarControleVolume(tiles.get(sid), participante(sid), s, false);
+}
+
+function alternarVolumeDaTela(sid) {
+  const s = somDe(sid);
+  if (s.tela > 0) {
+    s.telaAntesDeSilenciar = s.tela;
+    s.tela = 0;
+  } else {
+    s.tela = s.telaAntesDeSilenciar || 1;
+  }
+  aplicarSom(sid);
+  atualizarControleVolume(tiles.get(sid), participante(sid), s, false);
+}
+
+function atualizarControleVolume(t, p, s, semSom) {
+  if (!t || !p || !s) return;
+  const porcentagem = Math.round(s.tela * 100);
+  t.volume.value = porcentagem;
+  t.volume.disabled = semSom;
+  t.pctVolume.textContent = semSom ? 'sem som' : `${porcentagem}%`;
+  t.botaoVolume.disabled = semSom;
+  const mudo = !porcentagem;
+  trocarIcone(t.botaoVolume, mudo ? 'volume-x' : 'volume-2');
+  const acao = mudo ? 'Restaurar som da transmissão' : 'Silenciar transmissão para mim';
+  t.botaoVolume.title = semSom ? 'Esta transmissão não tem som' : acao;
+  t.botaoVolume.setAttribute('aria-label', t.botaoVolume.title);
+  t.volume.setAttribute('aria-label', semSom ? 'A transmissão não tem som' : 'Volume da transmissão');
 }
 
 /* ================= utilidades ================= */

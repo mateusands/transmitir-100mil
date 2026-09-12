@@ -92,7 +92,9 @@ npm run hospedar
 
 Ele sobe o servidor, abre o túnel e imprime um endereço
 `https://algo.trycloudflare.com`. Mande esse link. Quem abre digita o nome e já
-está na chamada.
+está na chamada. Enquanto esse túnel estiver aberto, o botão **Copiar link**
+também copia esse endereço público, mesmo para quem estiver usando a sala em
+`localhost`; sem túnel, ele copia o endereço local aberto.
 
 **Para encerrar:** `Ctrl+C` na mesma janela. Isso derruba o servidor e o túnel
 juntos, e o endereço morre ali — a próxima execução gera outro.
@@ -319,6 +321,11 @@ e é por ela que se chega no volume de cada um.
   avisada. É o mesmo modelo do Discord — baixar o volume de alguém é ajuste do
   ouvinte, não moderação. Ter voz e som da tela separados resolve o caso comum
   de o jogo estar alto demais e a voz de quem explica estar baixa.
+
+- **Passe o mouse sobre uma transmissão** — aparece, no canto superior direito,
+  o volume do som daquela tela. A barra vertical aumenta ou diminui só o áudio
+  transmitido; o botão silencia e restaura esse som. A voz continua no controle
+  separado, para não baixar junto quem está explicando.
 
 - **Sair** — fecha suas conexões. Fechar a aba faz o mesmo.
 

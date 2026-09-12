@@ -16,6 +16,7 @@ import { Server } from 'socket.io';
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORTA = Number(process.env.PORT) || 3000;
 const LIMITE_POR_SALA = Number(process.env.LIMITE_SALA) || 8;
+let urlPublica = null;
 
 const app = express();
 app.set('trust proxy', true);
@@ -44,7 +45,22 @@ app.get('/api/config', (req, res) => {
       credential: process.env.TURN_PASS || '',
     });
   }
-  res.json({ ice_servers: ice, limite_sala: LIMITE_POR_SALA });
+  // Quem abre localhost enquanto o túnel está de pé ainda precisa copiar o
+  // endereço público. Sem essa informação, location.origin convidaria só a
+  // própria máquina e a sala pareceria publicada sem estar acessível.
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ice_servers: ice, limite_sala: LIMITE_POR_SALA, url_publica: urlPublica });
+});
+
+/* O processo que abriu o túnel é o único que conhece seu endereço efêmero.
+   A mensagem fica só entre os dois processos locais; ela não participa da
+   sinalização e jamais carrega mídia. */
+process.on('message', mensagem => {
+  if (mensagem?.tipo !== 'url-publica') return;
+  try {
+    const url = new URL(mensagem.url);
+    urlPublica = url.protocol === 'https:' ? url.origin : null;
+  } catch { urlPublica = null; }
 });
 
 /* no-cache, não "sem cache": o navegador guarda, mas confere se mudou antes de
